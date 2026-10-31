@@ -190,7 +190,7 @@ final class AppStore {
             let runningApps = NSWorkspace.shared.runningApplications.filter {
                 !$0.isTerminated && ($0.activationPolicy == .regular || $0.activationPolicy == .accessory) && $0.bundleURL != nil
             }
-            let infos = runningApps.map { app in
+            let infos: [ApplicationInfo] = runningApps.map { app -> ApplicationInfo in
                 let path = app.bundleURL?.path ?? ""
                 let icon = iconCache[path] ?? app.icon
                 if let icon { iconCache[path] = icon }
