@@ -15,6 +15,16 @@ struct ContentView: View {
         .background(Palette.canvas)
         .tint(Palette.accent)
         .overlay(alignment: .bottom) {
+            VStack(spacing: 8) {
+            if let operation = store.operation {
+                HStack(spacing: 10) {
+                    if operation.isPending { ProgressView().controlSize(.small) }
+                    else { Image(systemName: operation.isWarning ? "exclamationmark.circle" : "checkmark.circle.fill").foregroundStyle(operation.isWarning ? Palette.orange : Palette.green) }
+                    Text(operation.message).font(.system(size: 12)).foregroundStyle(Palette.ink).fixedSize(horizontal: false, vertical: true)
+                    if !operation.isPending { Button { store.operation = nil } label: { Image(systemName: "xmark") }.buttonStyle(.plain).help("关闭操作结果") }
+                }.padding(16).frame(maxWidth: 600).background(Palette.card, in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Palette.line)).shadow(color: .black.opacity(0.08), radius: 15, y: 4)
+            }
             if let notice = store.notice {
                 HStack(spacing: 8) {
                     Image(systemName: notice.isError ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
@@ -25,9 +35,9 @@ struct ContentView: View {
                     .background(Palette.card, in: RoundedRectangle(cornerRadius: 10))
                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.line))
                     .shadow(color: .black.opacity(0.08), radius: 15, y: 4)
-                    .padding(.bottom, 20).padding(.horizontal, 240)
                     .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
             }
+            }.padding(.bottom, 20).padding(.horizontal, 240)
         }
         .animation(reduceMotion ? nil : Motion.gentle, value: store.notice?.id)
         .sheet(item: $store.pendingAction) { pending in ActionConfirmation(pending: pending) }
@@ -49,6 +59,9 @@ struct ActionConfirmation: View {
                 }
             }
             Text(pending.action.explanation).font(.system(size: 12)).foregroundStyle(.secondary).lineSpacing(5).fixedSize(horizontal: false, vertical: true)
+            if let port = pending.port {
+                Label("\(port.transport) · \(port.address)\n执行前将重新核对端口归属。", systemImage: "network").font(.system(size: 11)).foregroundStyle(Palette.secondary)
+            }
             Text(pending.target.executable).font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled).lineLimit(3)
                 .padding(12).frame(maxWidth: .infinity, alignment: .leading).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 8))
             HStack {

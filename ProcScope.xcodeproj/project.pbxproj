@@ -8,15 +8,18 @@
 
 /* Begin PBXBuildFile section */
 		17CAA967A0A2558459FB0935 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 315EFF5E6939E563E6323BD9 /* Assets.xcassets */; };
+		22C14177D2F793602330AC06 /* CommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71B93E2D98C687B94D321025 /* CommandRunner.swift */; };
 		232EA9241ABEEB12D634DFDB /* ProcScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27237B5AF579574F49CABF7B /* ProcScopeTests.swift */; };
 		4381190F010131A0F4806A83 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0FBBEE4C982DDF136458DB /* SidebarView.swift */; };
 		49FFCB95278BD2F4FBA1D39A /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5739316E3C44FCB3748200C4 /* Components.swift */; };
 		50DB43D2D099987B663DA577 /* ProcessModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32DEF79663CB7C2E081D80F9 /* ProcessModels.swift */; };
 		9159053E910AC47FBAD22727 /* SystemService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FC201D2D54BD77831C4CD82 /* SystemService.swift */; };
 		96FC86A271DA7E9CEEDA2C11 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6578B4D143BFDEBE63CCCA61 /* ContentView.swift */; };
+		97607C0FC4DEEEDE6E8C5C31 /* PortFavorite.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85B77A9246465C38885388CB /* PortFavorite.swift */; };
 		9A9F8D718A598B520533F673 /* AppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AA258895D116663DA16CB00 /* AppStore.swift */; };
 		A400E2176A33EB67DCD1F544 /* ProcessListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7020CB1654C79D26E58EFA /* ProcessListView.swift */; };
 		B5709280CE0B00815C9D91D6 /* InspectorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2592A0DA154783270B2671D /* InspectorView.swift */; };
+		D90ACB2417A3367A4950445B /* PortListContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = F36A686028B894184C9040C1 /* PortListContent.swift */; };
 		F88822EEE9BB3221A004B109 /* ProcScopeApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DC7DFAD24F0315EC2E27274 /* ProcScopeApp.swift */; };
 /* End PBXBuildFile section */
 
@@ -41,10 +44,13 @@
 		5A8016B4C4A5D71413B684E9 /* ProcScopeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ProcScopeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5DC7DFAD24F0315EC2E27274 /* ProcScopeApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcScopeApp.swift; sourceTree = "<group>"; };
 		6578B4D143BFDEBE63CCCA61 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		71B93E2D98C687B94D321025 /* CommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandRunner.swift; sourceTree = "<group>"; };
+		85B77A9246465C38885388CB /* PortFavorite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortFavorite.swift; sourceTree = "<group>"; };
 		9FC201D2D54BD77831C4CD82 /* SystemService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemService.swift; sourceTree = "<group>"; };
 		A2592A0DA154783270B2671D /* InspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorView.swift; sourceTree = "<group>"; };
 		CF0FBBEE4C982DDF136458DB /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		EC7020CB1654C79D26E58EFA /* ProcessListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProcessListView.swift; sourceTree = "<group>"; };
+		F36A686028B894184C9040C1 /* PortListContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortListContent.swift; sourceTree = "<group>"; };
 		FAB95409E860F0AA5BB6DE6B /* ProcBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ProcBridge.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -99,6 +105,7 @@
 		901527869CFA06D098BF0896 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				71B93E2D98C687B94D321025 /* CommandRunner.swift */,
 				FAB95409E860F0AA5BB6DE6B /* ProcBridge.h */,
 				9FC201D2D54BD77831C4CD82 /* SystemService.swift */,
 			);
@@ -109,6 +116,7 @@
 			isa = PBXGroup;
 			children = (
 				4AA258895D116663DA16CB00 /* AppStore.swift */,
+				85B77A9246465C38885388CB /* PortFavorite.swift */,
 				32DEF79663CB7C2E081D80F9 /* ProcessModels.swift */,
 			);
 			path = Models;
@@ -120,6 +128,7 @@
 				5739316E3C44FCB3748200C4 /* Components.swift */,
 				6578B4D143BFDEBE63CCCA61 /* ContentView.swift */,
 				A2592A0DA154783270B2671D /* InspectorView.swift */,
+				F36A686028B894184C9040C1 /* PortListContent.swift */,
 				EC7020CB1654C79D26E58EFA /* ProcessListView.swift */,
 				CF0FBBEE4C982DDF136458DB /* SidebarView.swift */,
 			);
@@ -228,9 +237,12 @@
 			buildActionMask = 2147483647;
 			files = (
 				9A9F8D718A598B520533F673 /* AppStore.swift in Sources */,
+				22C14177D2F793602330AC06 /* CommandRunner.swift in Sources */,
 				49FFCB95278BD2F4FBA1D39A /* Components.swift in Sources */,
 				96FC86A271DA7E9CEEDA2C11 /* ContentView.swift in Sources */,
 				B5709280CE0B00815C9D91D6 /* InspectorView.swift in Sources */,
+				97607C0FC4DEEEDE6E8C5C31 /* PortFavorite.swift in Sources */,
+				D90ACB2417A3367A4950445B /* PortListContent.swift in Sources */,
 				F88822EEE9BB3221A004B109 /* ProcScopeApp.swift in Sources */,
 				A400E2176A33EB67DCD1F544 /* ProcessListView.swift in Sources */,
 				50DB43D2D099987B663DA577 /* ProcessModels.swift in Sources */,

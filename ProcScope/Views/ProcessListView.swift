@@ -7,13 +7,18 @@ struct ProcessListView: View {
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        VStack(spacing: 0) {
+        @Bindable var store = store
+        return VStack(spacing: 0) {
             header
-            HStack(spacing: 10) {
-                StatCard(label: "进程 CPU 合计", value: String(format: "%.1f%%", store.totalCPU), symbol: "cpu", caption: "单核 100% · 全部进程", history: store.activityHistory)
-                StatCard(label: "驻留内存合计", value: store.totalMemory.memoryLabel, symbol: "memorychip", caption: "RSS · 含重复共享页面", color: Palette.orange, history: store.memoryHistory)
-                StatCard(label: "监听与绑定", value: String(store.ports.count), symbol: "point.3.connected.trianglepath.dotted", caption: "TCP 监听 / UDP 绑定", color: Palette.green, history: store.portHistory)
-            }.padding(.horizontal, 28).padding(.bottom, 26)
+            if store.section == .ports {
+                portSummary
+            } else {
+                HStack(spacing: 10) {
+                    StatCard(label: "进程 CPU 合计", value: String(format: "%.1f%%", store.totalCPU), symbol: "cpu", caption: "单核 100% · 全部进程", history: store.activityHistory)
+                    StatCard(label: "驻留内存合计", value: store.totalMemory.memoryLabel, symbol: "memorychip", caption: "RSS · 含重复共享页面", color: Palette.orange, history: store.memoryHistory)
+                    StatCard(label: "监听与绑定", value: String(store.ports.count), symbol: "point.3.connected.trianglepath.dotted", caption: "TCP 监听 / UDP 绑定", color: Palette.green, history: store.portHistory)
+                }.padding(.horizontal, 28).padding(.bottom, 26)
+            }
             searchBar.padding(.horizontal, 28).padding(.bottom, 14)
             filters.padding(.horizontal, 28).padding(.bottom, 14)
             if let error = store.scanError { errorBanner(error).padding(.horizontal, 28).padding(.bottom, 12) }
@@ -24,7 +29,7 @@ struct ProcessListView: View {
                 if store.updatedAt == nil && store.isRefreshing {
                     VStack(spacing: 12) { ProgressView().controlSize(.small); Text("正在读取系统进程…").font(.system(size: 12)).foregroundStyle(Palette.secondary) }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if store.section == .ports {
-                    portList
+                    PortListContent()
                 } else {
                     processList
                 }
@@ -35,6 +40,7 @@ struct ProcessListView: View {
             .padding(.horizontal, 28)
             footer
         }.frame(minWidth: 630, maxWidth: .infinity, maxHeight: .infinity).background(Palette.canvas)
+            .sheet(item: $store.editingFavorite) { FavoriteEditor(favorite: $0).environment(store) }
             .onReceive(NotificationCenter.default.publisher(for: .focusProcSearch)) { _ in searchFocused = true }
     }
     private var header: some View {
@@ -56,7 +62,7 @@ struct ProcessListView: View {
             Spacer(minLength: 8)
             HStack(spacing: 4) {
                 IconButton(symbol: store.isMonitoring ? "pause" : "play", label: store.isMonitoring ? "暂停自动刷新" : "开启自动刷新") { store.isMonitoring.toggle() }
-                IconButton(symbol: "arrow.clockwise", label: "立即刷新（⌘R）") { Task { await store.refresh(forcePorts: true) } }.disabled(store.isRefreshing)
+                IconButton(symbol: "arrow.clockwise", label: "立即刷新（⌘R）") { Task { await store.refresh(forcePorts: true) } }
             }.padding(4).background(Palette.card, in: Capsule()).overlay(Capsule().stroke(Palette.line))
         }.padding(.horizontal, 28).padding(.top, 28).padding(.bottom, 27)
     }
@@ -80,6 +86,8 @@ struct ProcessListView: View {
         @Bindable var store = store
         return HStack(spacing: 2) {
             if store.section == .ports {
+                PillButton(title: "收藏", isSelected: store.favoritesOnly) { store.favoritesOnly.toggle() }
+                Rectangle().fill(Palette.line).frame(width: 1, height: 14).padding(.horizontal, 6)
                 ForEach(["全部", "TCP", "UDP"], id: \.self) { value in
                     PillButton(title: value, isSelected: store.transportFilter == value) { store.transportFilter = value }
                 }
@@ -103,7 +111,8 @@ struct ProcessListView: View {
             if store.section == .ports {
                 Text("端口 / 协议").frame(width: 110, alignment: .leading)
                 Text("所属进程").frame(maxWidth: .infinity, alignment: .leading)
-                Text("绑定地址").frame(width: 128, alignment: .trailing)
+                Text("绑定地址").frame(width: 120, alignment: .trailing)
+                Text("收藏").frame(width: 25)
             } else {
                 Text(store.section == .applications ? "应用" : "进程").frame(maxWidth: .infinity, alignment: .leading)
                 Text("状态").frame(width: 67, alignment: .leading)
@@ -178,48 +187,22 @@ struct ProcessListView: View {
         if store.section == .applications, let app { return "\(store.associatedProcesses(app).count) 个关联进程\(app.isHidden ? " · 窗口已隐藏" : "")" }
         return app?.name ?? (record.uid == store.currentUID ? "当前用户" : "UID \(record.uid) · 系统 / 其他用户")
     }
-    private var portList: some View {
-        Group {
-            if store.matchingPorts.isEmpty {
-                EmptyState(symbol: "network", title: store.search.isEmpty ? "暂无可见的监听端口" : "没有匹配的端口", message: store.search.isEmpty ? "扫描当前权限可见的 TCP 监听与 UDP 绑定。" : "试试端口号，如 3000，或进程名称。")
-            } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(store.matchingPorts) { port in
-                            Button { store.select(port.pid, portID: port.id) } label: {
-                                HStack(spacing: 8) {
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text(port.port.map(String.init) ?? "—").font(.system(size: 15, weight: .semibold, design: .monospaced)).foregroundStyle(Palette.ink)
-                                        Text(port.transport).font(.system(size: 9, weight: .medium)).foregroundStyle(port.transport == "TCP" ? Palette.accent : Palette.orange)
-                                    }.frame(width: 110, alignment: .leading)
-                                    HStack(spacing: 9) {
-                                        AppIcon(image: store.app(for: port.pid)?.icon, size: 26)
-                                        VStack(alignment: .leading, spacing: 5) {
-                                            Text(store.app(for: port.pid)?.name ?? port.processName).font(.system(size: 12, weight: .medium)).foregroundStyle(Palette.ink).lineLimit(1)
-                                            Text("PID \(port.pid) · \(port.processName)").font(.system(size: 9, design: .monospaced)).foregroundStyle(Palette.secondary).lineLimit(1)
-                                        }
-                                        Spacer(minLength: 0)
-                                    }.frame(maxWidth: .infinity, alignment: .leading)
-                                    VStack(alignment: .trailing, spacing: 5) {
-                                        Text(port.address).font(.system(size: 10, design: .monospaced)).foregroundStyle(Palette.ink).lineLimit(1).truncationMode(.middle)
-                                        Text(port.isLoopback ? "仅本机" : port.status).font(.system(size: 9)).foregroundStyle(Palette.secondary)
-                                    }.frame(width: 128, alignment: .trailing)
-                                }.padding(.horizontal, 16).frame(height: 64).contentShape(Rectangle())
-                                    .modifier(RowSurface(selected: store.selectedPortID == port.id))
-                            }.buttonStyle(.plain).accessibilityLabel("端口 \(port.port ?? 0)，\(port.transport)，\(port.processName)，PID \(port.pid)")
-                            Rectangle().fill(Palette.line.opacity(0.7)).frame(height: 1).padding(.leading, 16)
-                        }
-                    }
-                }
-            }
-        }
+    private var portSummary: some View {
+        HStack(spacing: 18) {
+            Label("\(store.ports.count) 个监听 / 绑定", systemImage: "network")
+            Label("\(store.favorites.count) 个收藏", systemImage: "star")
+            Spacer()
+            Text("常用服务，随手可达").foregroundStyle(Palette.secondary)
+        }.font(.system(size: 11)).foregroundStyle(Palette.accent)
+            .padding(14).background(Palette.accent.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, 28).padding(.bottom, 18)
     }
     private var footer: some View {
         HStack(spacing: 7) {
             Circle().fill((store.section == .ports ? store.portError : store.scanError) == nil ? (store.isMonitoring ? Palette.green : Palette.secondary) : Palette.orange).frame(width: 5, height: 5)
             Text("\(store.section == .ports ? store.matchingPorts.count : store.matchingProcesses.count) 项").font(.system(size: 10))
             if store.section == .applications { Text("· CPU / 内存含关联进程").font(.system(size: 9)) }
-            if store.section == .ports { Text("· 仅当前权限可见").font(.system(size: 9)) }
+            if store.section == .ports { Text("· 仅当前权限可见 · \(store.offlineFavorites.count) 个收藏未发现占用").font(.system(size: 9)) }
             Spacer()
             if let date = store.section == .ports ? store.portsUpdatedAt : store.updatedAt {
                 Text("更新于 \(date.formatted(date: .omitted, time: .standard))").font(.system(size: 9, design: .monospaced))

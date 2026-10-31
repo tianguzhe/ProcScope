@@ -21,29 +21,6 @@ enum SystemServiceError: LocalizedError {
     }
 }
 
-enum CommandRunner {
-    /// Fixed executables and individual arguments only; never execute a shell string.
-    static func run(_ executable: String, _ arguments: [String], timeout: Double = 8) throws -> CommandResult {
-        let process = Process()
-        let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.environment = ["PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "LC_ALL": "C", "LANG": "C"]
-        process.standardOutput = output
-        process.standardError = output
-        process.standardInput = FileHandle.nullDevice
-        try process.run()
-        let deadline = DispatchWorkItem {
-            if process.isRunning { process.terminate() }
-        }
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: deadline)
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        deadline.cancel()
-        return CommandResult(output: String(decoding: data, as: UTF8.self), status: process.terminationStatus)
-    }
-}
-
 enum SystemService {
     static func readIdentity(pid: Int32) -> ProcessIdentity? {
         var info = proc_bsdinfo()
@@ -84,12 +61,25 @@ enum SystemService {
     }
 
     static func fetchPorts() throws -> [PortRecord] {
+        // Bracket the scan: a PID reused during lsof must not inherit an old socket.
+        let capacity = max(proc_listallpids(nil, 0) + 256, 1024)
+        var pids = [Int32](repeating: 0, count: Int(capacity))
+        let count = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<Int32>.stride))
+        let before = pids.prefix(max(0, min(Int(count), pids.count))).reduce(into: [Int32: ProcessIdentity]()) { result, pid in
+            result[pid] = readIdentity(pid: pid)
+        }
         let result = try CommandRunner.run("/usr/sbin/lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-iUDP", "-FpcfPnT"], timeout: 10)
         // lsof returns 1 when no matching sockets are visible.
         guard result.status == 0 || (result.status == 1 && result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) else {
             throw SystemServiceError.failed("端口扫描未完成。部分进程可能受系统权限限制，请重试。")
         }
-        return parsePorts(result.output)
+        return parsePorts(result.output).map { socket in
+            var socket = socket
+            if let identity = before[socket.pid], readIdentity(pid: socket.pid) == identity {
+                socket.identity = identity
+            }
+            return socket
+        }
     }
 
     static func parsePorts(_ output: String) -> [PortRecord] {
@@ -128,14 +118,73 @@ enum SystemService {
     static func fetchDetail(for target: ProcessRecord) throws -> ProcessDetail {
         guard let identity = target.identity, readIdentity(pid: target.pid) == identity else { throw SystemServiceError.staleProcess }
         var warnings: [String] = []
-        let command = try CommandRunner.run("/bin/ps", ["-ww", "-p", String(target.pid), "-o", "command="])
-        let cwd = try CommandRunner.run("/usr/sbin/lsof", ["-a", "-p", String(target.pid), "-d", "cwd", "-Fn"], timeout: 5)
-        let directory = cwd.output.split(separator: "\n").first(where: { $0.hasPrefix("n/") }).map { String($0.dropFirst()) }
+        let command = commandLine(pid: target.pid)
+        let directory = workingDirectory(pid: target.pid)
+        if command == nil { warnings.append("启动命令不可读取，可能受进程权限限制。") }
         if directory == nil { warnings.append("工作目录不可读取，可能受进程权限限制。") }
         guard readIdentity(pid: target.pid) == identity else { throw SystemServiceError.staleProcess }
         return ProcessDetail(identity: identity,
-                             command: command.status == 0 ? command.output.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
+                             command: command,
                              workingDirectory: directory, warnings: warnings)
+    }
+
+    static func workingDirectory(pid: Int32) -> String? {
+        var info = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.stride)
+        guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size) == size else { return nil }
+        let path = withUnsafeBytes(of: info.pvi_cdir.vip_path) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        return path.isEmpty ? nil : path
+    }
+
+    static func commandLine(pid: Int32) -> String? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 4, size <= 4 * 1024 * 1024 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &bytes, &size, nil, 0) == 0 else { return nil }
+        return parseArguments(Array(bytes.prefix(size)))
+    }
+
+    static func parseArguments(_ bytes: [UInt8]) -> String? {
+        guard bytes.count > 4 else { return nil }
+        let count = bytes.withUnsafeBytes { $0.loadUnaligned(as: Int32.self) }
+        guard count > 0, count <= bytes.count else { return nil }
+        var position = 4
+        while position < bytes.count && bytes[position] != 0 { position += 1 }
+        while position < bytes.count && bytes[position] == 0 { position += 1 }
+        var arguments: [String] = []
+        for _ in 0..<count {
+            guard position < bytes.count else { return nil }
+            let start = position
+            while position < bytes.count && bytes[position] != 0 { position += 1 }
+            guard position < bytes.count else { return nil }
+            let argument = String(decoding: bytes[start..<position], as: UTF8.self)
+            // Preserve argument boundaries; never read the environment after argc.
+            arguments.append(argument.isEmpty || argument.contains(where: { $0.isWhitespace || "'\"\\".contains($0) })
+                             ? "'" + argument.replacingOccurrences(of: "'", with: "'\\''") + "'" : argument)
+            position += 1
+        }
+        return arguments.joined(separator: " ")
+    }
+
+    static func validatePort(_ port: PortRecord, target: ProcessRecord) throws {
+        guard let identity = port.identity, identity == target.identity else { throw SystemServiceError.staleProcess }
+        try validateTarget(target)
+        let sockets = try fetchPorts()
+        guard sockets.contains(where: { $0.id == port.id && $0.identity == identity }) else { throw SystemServiceError.staleProcess }
+        try validateTarget(target)
+    }
+
+    enum ObservedState { case exited, paused, running, unknown }
+    static func observedState(of target: ProcessRecord) -> ObservedState {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.stride)
+        guard proc_pidinfo(target.pid, PROC_PIDTBSDINFO, 0, &info, size) == size else {
+            return Darwin.kill(target.pid, 0) == -1 && errno == ESRCH ? .exited : .unknown
+        }
+        let identity = ProcessIdentity(pid: target.pid, startSeconds: info.pbi_start_tvsec, startMicroseconds: info.pbi_start_tvusec)
+        if identity != target.identity || info.pbi_status == SZOMB { return .exited }
+        return info.pbi_status == SSTOP ? .paused : .running
     }
 
     static func actionBlockReason(for target: ProcessRecord, currentUID: UInt32 = getuid(), ownPID: Int32 = getpid()) -> String? {

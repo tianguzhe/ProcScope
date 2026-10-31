@@ -97,7 +97,7 @@ final class ProcScopeTests: XCTestCase {
 
     @MainActor
     func testRefreshKeepsLatestSelectionAndClearsReusedPID() {
-        let store = AppStore()
+        let store = AppStore(defaults: nil)
         var first = SystemService.parseProcesses("42 1 501 0 100 S 00:01 /bin/first")[0]
         var second = SystemService.parseProcesses("43 1 501 0 100 S 00:01 /bin/second")[0]
         first.identity = ProcessIdentity(pid: 42, startSeconds: 100, startMicroseconds: 0)
@@ -115,7 +115,7 @@ final class ProcScopeTests: XCTestCase {
 
     @MainActor
     func testIndexedAggregationSearchAndSnapshotInvalidation() throws {
-        let store = AppStore()
+        let store = AppStore(defaults: nil)
         let app = ApplicationInfo(pid: 42, name: "My Editor", bundlePath: "/Applications/My Editor.app", icon: nil, isActive: true, isHidden: false)
         let records = SystemService.parseProcesses("""
         42 1 501 2.0 100 S 01:00 /Applications/My Editor.app/Contents/MacOS/Editor
@@ -148,17 +148,20 @@ final class ProcScopeTests: XCTestCase {
 
     @MainActor
     func testPortsAndRelationshipsFollowLatestSnapshot() {
-        let store = AppStore()
+        let store = AppStore(defaults: nil)
         store.processes = SystemService.parseProcesses("""
         42 1 501 0 100 S 00:01 /bin/parent
         43 42 501 0 100 S 00:01 /bin/child
         44 43 501 0 100 S 00:01 /bin/grandchild
         """)
+        store.processes = store.processes.map { record in
+            var value = record; value.identity = ProcessIdentity(pid: record.pid, startSeconds: 100, startMicroseconds: 0); return value
+        }
         store.selectedPID = 43
         XCTAssertEqual(store.ancestry.map(\.pid), [42])
         XCTAssertEqual(store.childProcesses.map(\.pid), [44])
-        store.ports = [PortRecord(pid: 43, processName: "child", transport: "TCP", address: "127.0.0.1:3000"),
-                       PortRecord(pid: 44, processName: "grandchild", transport: "UDP", address: "*:5353")]
+        store.ports = [PortRecord(pid: 43, processName: "child", transport: "TCP", address: "127.0.0.1:3000", identity: store.processes[1].identity),
+                       PortRecord(pid: 44, processName: "grandchild", transport: "UDP", address: "*:5353", identity: store.processes[2].identity)]
         store.section = .ports
         store.transportFilter = "TCP"
         XCTAssertEqual(store.matchingPorts.count, 1)
@@ -177,7 +180,7 @@ final class ProcScopeTests: XCTestCase {
 
     @MainActor
     func testNestedApplicationsHaveDistinctResourceTotals() {
-        let store = AppStore()
+        let store = AppStore(defaults: nil)
         let outer = ApplicationInfo(pid: 42, name: "Outer", bundlePath: "/Outer.app", icon: nil, isActive: false, isHidden: false)
         let inner = ApplicationInfo(pid: 43, name: "Inner", bundlePath: "/Outer.app/Helpers/Inner.app", icon: nil, isActive: false, isHidden: false)
         store.applyProcessSnapshot(SystemService.parseProcesses("""
@@ -193,7 +196,7 @@ final class ProcScopeTests: XCTestCase {
 
     @MainActor
     func testCachedListReadsAgainstPreviousAggregation() {
-        let store = AppStore()
+        let store = AppStore(defaults: nil)
         let apps: [ApplicationInfo] = (0..<80).map { (index: Int) in
             ApplicationInfo(pid: Int32(index * 10 + 100), name: "App \(index)", bundlePath: "/Applications/App\(index).app", icon: nil, isActive: false, isHidden: false)
         }
@@ -231,6 +234,185 @@ final class ProcScopeTests: XCTestCase {
         print("BENCHMARK 100 indexed snapshots: \(indexStart.duration(to: .now))")
     }
 
+    func testCommandTimeoutEscalatesIgnoredTermination() {
+        let start = Date()
+        XCTAssertThrowsError(try CommandRunner.run("/bin/sh", ["-c", "trap '' TERM; exec /bin/sleep 30"], timeout: 0.15)) { error in
+            guard case CommandError.timedOut = error else { return XCTFail("Expected timeout, got \(error)") }
+        }
+        XCTAssertLessThan(Date().timeIntervalSince(start), 3)
+    }
+
+    func testCommandCancellationStopsOwnedSubprocess() async throws {
+        let worker = Task { try await CommandRunner.background { try CommandRunner.run("/bin/sleep", ["30"]) } }
+        try await Task.sleep(for: .milliseconds(100))
+        worker.cancel()
+        do { _ = try await worker.value; XCTFail("Expected cancellation") }
+        catch is CancellationError { }
+        catch { XCTFail("Unexpected error: \(error)") }
+    }
+
+    func testCommandDrainsLargeOutput() throws {
+        let result = try CommandRunner.run("/usr/bin/awk", ["BEGIN { for (i=0; i<20000; i++) print \"sample\" }"])
+        XCTAssertEqual(result.status, 0)
+        XCTAssertEqual(result.output.count, 140_000)
+    }
+
+    func testNativeDetailsAndArgumentBoundaries() throws {
+        let child = try makeChild()
+        defer { child.terminate(); child.waitUntilExit() }
+        let target = try XCTUnwrap(SystemService.fetchProcesses().first { $0.pid == child.processIdentifier })
+        let detail = try SystemService.fetchDetail(for: target)
+        XCTAssertTrue(detail.command?.contains("sleep 30") == true)
+        XCTAssertNotNil(detail.workingDirectory)
+        var count: Int32 = 3
+        var bytes = withUnsafeBytes(of: &count) { Array($0) }
+        bytes += Array("/bin/tool\0\0tool\0hello world\0\0SECRET=not-an-argument\0".utf8)
+        XCTAssertEqual(SystemService.parseArguments(bytes), "tool 'hello world' ''")
+        XCTAssertNil(SystemService.parseArguments([0, 1]))
+    }
+
+    func testLivePortScanBindsSocketToProcessIdentity() throws {
+        let fd = Darwin.socket(AF_INET, SOCK_STREAM, 0)
+        XCTAssertGreaterThanOrEqual(fd, 0)
+        guard fd >= 0 else { return }
+        defer { Darwin.close(fd) }
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let bound = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        XCTAssertEqual(bound, 0)
+        XCTAssertEqual(Darwin.listen(fd, 1), 0)
+        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let named = withUnsafeMutablePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) }
+        }
+        XCTAssertEqual(named, 0)
+        let port = Int(UInt16(bigEndian: address.sin_port))
+        let socket = try XCTUnwrap(SystemService.fetchPorts().first { $0.pid == getpid() && $0.port == port && $0.transport == "TCP" })
+        XCTAssertNotNil(socket.identity)
+        XCTAssertEqual(socket.identity, SystemService.readIdentity(pid: getpid()))
+    }
+
+    @MainActor
+    func testForcedRefreshDuringScanIsCoalescedAndAwaited() async throws {
+        let probe = ScanProbe()
+        let source = SnapshotSource(processes: { await probe.processes() }, ports: { await probe.ports() })
+        let store = AppStore(defaults: nil, source: source)
+        store.portsUpdatedAt = Date()
+        let first = Task { await store.refresh() }
+        for _ in 0..<100 { if await probe.isBlocked { break }; try await Task.sleep(for: .milliseconds(10)) }
+        let second = Task { await store.refresh(forcePorts: true) }
+        await Task.yield()
+        await probe.release()
+        await first.value
+        await second.value
+        let counts = await probe.counts
+        XCTAssertEqual(counts.0, 2)
+        XCTAssertEqual(counts.1, 1)
+        XCTAssertFalse(store.isRefreshing)
+    }
+
+    @MainActor
+    func testManualRefreshReloadsSelectedDetailDespiteCache() async throws {
+        let child = try makeChild()
+        defer { child.terminate(); child.waitUntilExit() }
+        let target = try XCTUnwrap(SystemService.fetchProcesses().first { $0.pid == child.processIdentifier })
+        let counter = ReadCounter()
+        let loader = DetailLoader { record in
+            ProcessDetail(identity: record.identity!, command: "read-\(counter.next())", workingDirectory: nil, warnings: [])
+        }
+        let source = SnapshotSource(processes: { [target] }, ports: { [] })
+        let store = AppStore(defaults: nil, source: source, detailLoader: loader)
+        store.processes = [target]
+        store.select(target.pid)
+        for _ in 0..<100 { if !store.detailLoading { break }; try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(store.detail?.command, "read-1")
+        await store.refresh(forcePorts: true)
+        for _ in 0..<100 { if !store.detailLoading { break }; try await Task.sleep(for: .milliseconds(10)) }
+        XCTAssertEqual(store.detail?.command, "read-2")
+    }
+
+    @MainActor
+    func testPortCannotBindToReusedPID() {
+        let store = AppStore(defaults: nil)
+        var process = SystemService.parseProcesses("42 1 501 0 100 S 00:01 /bin/fixture")[0]
+        process.identity = ProcessIdentity(pid: 42, startSeconds: 100, startMicroseconds: 0)
+        let port = PortRecord(pid: 42, processName: "fixture", transport: "TCP", address: "127.0.0.1:3000", identity: process.identity)
+        store.processes = [process]; store.ports = [port]; store.selectedPID = 42
+        XCTAssertNotNil(store.target(for: port))
+        process.identity = ProcessIdentity(pid: 42, startSeconds: 200, startMicroseconds: 0)
+        store.applyProcessSnapshot([process])
+        XCTAssertNil(store.target(for: port))
+        XCTAssertTrue(store.selectedPorts.isEmpty)
+        XCTAssertNil(store.selectedPID)
+    }
+
+    @MainActor
+    func testFavoritesPersistAcrossRestartAndKeepOfflineServices() throws {
+        let suite = "ProcScopeTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = AppStore(defaults: defaults)
+        store.saveFavorite(PortFavorite(port: 3000, transport: "TCP", name: " 网站前端 "))
+        store.saveFavorite(PortFavorite(port: 3000, transport: "UDP", name: "发现服务"))
+        store.saveFavorite(PortFavorite(port: 70000, transport: "TCP", name: "invalid"))
+        let restored = AppStore(defaults: defaults)
+        XCTAssertEqual(restored.favorites.count, 2)
+        XCTAssertEqual(restored.offlineFavorites.count, 2)
+        restored.ports = [PortRecord(pid: 42, processName: "node", transport: "TCP", address: "*:3000")]
+        restored.search = "网站"
+        XCTAssertEqual(restored.matchingPorts.count, 1)
+        restored.search = ""
+        XCTAssertEqual(restored.offlineFavorites.map(\.transport), ["UDP"])
+        restored.toggleFavorite(restored.ports[0])
+        XCTAssertEqual(AppStore(defaults: defaults).favorites.count, 1)
+    }
+
+    func testBrowserAddressesRespectProtocolAndBindAddress() {
+        func socket(_ address: String, _ transport: String = "TCP") -> PortRecord {
+            PortRecord(pid: 42, processName: "fixture", transport: transport, address: address)
+        }
+        XCTAssertEqual(socket("*:3000").browserURL?.absoluteString, "http://127.0.0.1:3000")
+        XCTAssertEqual(socket("[::]:3000").browserURL?.absoluteString, "http://[::1]:3000")
+        XCTAssertEqual(socket("192.168.1.8:3000").browserURL?.host, "192.168.1.8")
+        XCTAssertNil(socket("*:5353", "UDP").browserURL)
+    }
+
+    @MainActor
+    func testOperationWaitsForActualExitOfOwnedFixture() async throws {
+        let child = try makeChild()
+        defer { if child.isRunning { child.terminate() }; child.waitUntilExit() }
+        let target = try XCTUnwrap(SystemService.fetchProcesses().first { $0.pid == child.processIdentifier })
+        let store = AppStore(defaults: nil, source: SnapshotSource(processes: { [] }, ports: { [] }))
+        store.perform(PendingAction(action: .terminate, target: target, displayName: "测试子进程"))
+        XCTAssertTrue(store.operation?.isPending == true)
+        for _ in 0..<100 { if store.operation?.isPending == false { break }; try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertFalse(store.operation?.isPending ?? true)
+        XCTAssertFalse(store.operation?.isWarning ?? true)
+        XCTAssertTrue(store.operation?.message.contains("已退出") == true)
+        XCTAssertFalse(child.isRunning)
+        XCTAssertFalse(AppStore.actionCompleted(.terminate, state: .running))
+        XCTAssertFalse(AppStore.actionCompleted(.resume, state: .exited))
+        XCTAssertFalse(AppStore.actionCompleted(.pause, state: .unknown))
+    }
+
+    @MainActor
+    func testPortActionRefusesSocketNoLongerOwnedByTarget() async throws {
+        let child = try makeChild()
+        defer { if child.isRunning { child.terminate() }; child.waitUntilExit() }
+        let target = try XCTUnwrap(SystemService.fetchProcesses().first { $0.pid == child.processIdentifier })
+        let stale = PortRecord(pid: target.pid, processName: "sleep", transport: "TCP", address: "127.0.0.1:65530", identity: target.identity)
+        let store = AppStore(defaults: nil)
+        store.perform(PendingAction(action: .terminate, target: target, displayName: "测试子进程", port: stale))
+        for _ in 0..<100 { if store.operation?.isPending == false { break }; try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertFalse(store.operation?.isPending ?? true)
+        XCTAssertTrue(store.operation?.isWarning == true)
+        XCTAssertTrue(child.isRunning)
+    }
+
     private func makeChild() throws -> Process {
         let child = Process()
         child.executableURL = URL(fileURLWithPath: "/bin/sleep")
@@ -240,4 +422,25 @@ final class ProcScopeTests: XCTestCase {
         try child.run()
         return child
     }
+}
+
+private final class ReadCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+    func next() -> Int { lock.lock(); defer { lock.unlock() }; value += 1; return value }
+}
+
+private actor ScanProbe {
+    private var processCount = 0
+    private var portCount = 0
+    private var gate: CheckedContinuation<Void, Never>?
+    var isBlocked: Bool { gate != nil }
+    var counts: (Int, Int) { (processCount, portCount) }
+    func processes() async -> [ProcessRecord] {
+        processCount += 1
+        if processCount == 1 { await withCheckedContinuation { gate = $0 } }
+        return []
+    }
+    func ports() -> [PortRecord] { portCount += 1; return [] }
+    func release() { gate?.resume(); gate = nil }
 }

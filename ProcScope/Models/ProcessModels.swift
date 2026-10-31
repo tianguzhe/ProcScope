@@ -65,12 +65,23 @@ struct PortRecord: Identifiable, Hashable, Sendable {
     let processName: String
     let transport: String
     let address: String
+    var identity: ProcessIdentity? = nil
     var port: Int? { address.split(separator: ":").last.flatMap { Int($0) } }
     var isLoopback: Bool {
         address.hasPrefix("127.") || address.hasPrefix("[::1]:") || address.hasPrefix("localhost:")
     }
     var scope: String { isLoopback ? "仅本机" : "\(transport == "UDP" ? "绑定" : "监听")地址" }
     var status: String { transport == "UDP" ? "已绑定" : "监听中" }
+    var favoriteKey: String { "\(transport):\(port ?? 0)" }
+    var browserURL: URL? {
+        // UDP and database ports are not assumed to speak HTTP. The explicit
+        // browser action is offered for TCP; the user chooses HTTP or HTTPS.
+        guard transport == "TCP", let port, (1...65535).contains(port),
+              let separator = address.lastIndex(of: ":") else { return nil }
+        let host = String(address[..<separator])
+        let destination = ["*", "0.0.0.0"].contains(host) ? "127.0.0.1" : host == "[::]" ? "[::1]" : host
+        return URL(string: "http://\(destination):\(port)")
+    }
 }
 
 struct ProcessDetail: Sendable {
@@ -147,11 +158,19 @@ enum ProcessAction: String, Identifiable {
     }
 }
 
-struct PendingAction: Identifiable {
+struct PendingAction: Identifiable, Sendable {
     let id = UUID()
     let action: ProcessAction
     let target: ProcessRecord
     let displayName: String
+    var port: PortRecord? = nil
+}
+
+struct OperationStatus {
+    let targetPID: Int32
+    var message: String
+    var isPending = true
+    var isWarning = false
 }
 
 struct Notice: Identifiable {
@@ -167,5 +186,8 @@ extension UInt64 {
 }
 
 enum AppVersion {
-    static var current: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.1.0" }
+    static var current: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? ProcessInfo.processInfo.environment["PROCSCOPE_PREVIEW_VERSION"] ?? "开发版"
+    }
 }

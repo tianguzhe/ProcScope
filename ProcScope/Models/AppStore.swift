@@ -21,6 +21,10 @@ final class AppStore {
     var filter: ProcessFilter = .all { didSet { rebuildMatches() } }
     var sort: ProcessSort = .cpu { didSet { rebuildMatches() } }
     var transportFilter = "全部" { didSet { rebuildMatches() } }
+    var favoritesOnly = false { didSet { rebuildMatches() } }
+    private(set) var favorites: [PortFavorite] = []
+    var editingFavorite: PortFavorite?
+    var operation: OperationStatus?
     var selectedPID: Int32?
     var selectedPortID: String?
     var processes: [ProcessRecord] = [] { didSet { if !applyingSnapshot { rebuildIndexes() } } }
@@ -28,6 +32,7 @@ final class AppStore {
         didSet {
             portsByPID = Dictionary(grouping: ports, by: \.pid)
             rebuildMatches()
+            if let id = selectedPortID, !ports.contains(where: { $0.id == id && target(for: $0) != nil }) { select(nil) }
         }
     }
     var applications: [ApplicationInfo] = [] { didSet { if !applyingSnapshot { rebuildIndexes() } } }
@@ -59,13 +64,81 @@ final class AppStore {
     @ObservationIgnored private var hasSelectedInitialProcess = false
     @ObservationIgnored private var detailTask: Task<Void, Never>?
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
-    @ObservationIgnored private let detailLoader = DetailLoader()
+    @ObservationIgnored private let detailLoader: DetailLoader
+    @ObservationIgnored private let source: SnapshotSource
+    @ObservationIgnored private let defaults: UserDefaults?
+    @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var monitoringTask: Task<Void, Never>?
+    @ObservationIgnored private var refreshRequested = false
+    @ObservationIgnored private var portsRequested = false
+    @ObservationIgnored private var detailRequested = false
+    @ObservationIgnored private var detailLoadedAt: Date?
     @ObservationIgnored private var iconCache: [String: NSImage] = [:]
     let currentUID = getuid()
 
+    init(defaults: UserDefaults? = .standard, source: SnapshotSource = .live, detailLoader: DetailLoader = DetailLoader()) {
+        self.defaults = defaults
+        self.source = source
+        self.detailLoader = detailLoader
+        if let data = defaults?.data(forKey: "portFavorites"), let saved = try? JSONDecoder().decode([PortFavorite].self, from: data) {
+            var seen = Set<String>()
+            favorites = saved.filter { $0.isValid && seen.insert($0.id).inserted }
+        }
+    }
+
     var selectedProcess: ProcessRecord? { selectedPID.flatMap { processesByPID[$0] } }
     var selectedApp: ApplicationInfo? { selectedPID.flatMap { appsByPID[$0] } }
-    var selectedPorts: [PortRecord] { selectedPID.flatMap { portsByPID[$0] } ?? [] }
+    var selectedPorts: [PortRecord] { (selectedPID.flatMap { portsByPID[$0] } ?? []).filter { target(for: $0) != nil } }
+    var offlineFavorites: [PortFavorite] {
+        let active = Set(ports.map(\.favoriteKey))
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return favorites.filter {
+            !active.contains($0.id) && (transportFilter == "全部" || transportFilter == $0.transport)
+                && (query.isEmpty || "\($0.port) \($0.transport) \($0.name)".localizedCaseInsensitiveContains(query))
+        }.sorted { $0.port == $1.port ? $0.transport < $1.transport : $0.port < $1.port }
+    }
+    func target(for port: PortRecord) -> ProcessRecord? {
+        guard let identity = port.identity, let process = processesByPID[port.pid], process.identity == identity else { return nil }
+        return process
+    }
+    func favorite(for port: PortRecord) -> PortFavorite? { favorites.first { $0.id == port.favoriteKey } }
+    func portName(_ port: PortRecord) -> String {
+        if let favorite = favorite(for: port), !favorite.name.isEmpty { return favorite.name }
+        return target(for: port).flatMap { app(for: $0.pid)?.name } ?? port.processName
+    }
+    func toggleFavorite(_ port: PortRecord) {
+        if let saved = favorite(for: port) { removeFavorite(saved) }
+        else if let number = port.port { saveFavorite(PortFavorite(port: number, transport: port.transport, name: "")) }
+    }
+    func saveFavorite(_ favorite: PortFavorite) {
+        guard favorite.isValid else { return }
+        var value = favorite
+        value.name = String(value.name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(60))
+        favorites.removeAll { $0.id == value.id }
+        favorites.append(value)
+        persistFavorites()
+    }
+    func removeFavorite(_ favorite: PortFavorite) {
+        favorites.removeAll { $0.id == favorite.id }
+        persistFavorites()
+    }
+    private func persistFavorites() {
+        if let data = try? JSONEncoder().encode(favorites) { defaults?.set(data, forKey: "portFavorites") }
+        rebuildMatches()
+    }
+    func selectPort(_ port: PortRecord) {
+        guard target(for: port) != nil else {
+            showNotice("端口归属已变化或暂不可验证，正在重新扫描。", isError: true)
+            Task { await refresh(forcePorts: true) }
+            return
+        }
+        select(port.pid, portID: port.id)
+    }
+    func browserURL(for port: PortRecord, secure: Bool = false) -> URL? {
+        guard var components = port.browserURL.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) else { return nil }
+        components.scheme = secure ? "https" : "http"
+        return components.url
+    }
     var childProcesses: [ProcessRecord] { selectedPID.flatMap { childrenByPID[$0] } ?? [] }
     var ancestry: [ProcessRecord] {
         guard var process = selectedProcess else { return [] }
@@ -143,7 +216,12 @@ final class AppStore {
         if matchingProcesses != matched { matchingProcesses = matched }
         let sockets = ports.filter { port in
             (transportFilter == "全部" || port.transport == transportFilter)
-                && (query.isEmpty || "\(port.address) \(port.pid) \(port.processName) \(appsByPID[port.pid]?.name ?? "")".localizedCaseInsensitiveContains(query))
+                && (!favoritesOnly || favorite(for: port) != nil)
+                && (query.isEmpty || "\(port.address) \(port.pid) \(port.processName) \(portName(port))".localizedCaseInsensitiveContains(query))
+        }.sorted {
+            let left = favorite(for: $0) != nil, right = favorite(for: $1) != nil
+            if left != right { return left }
+            return ($0.port ?? 0, $0.transport, $0.address, $0.pid) < ($1.port ?? 0, $1.transport, $1.address, $1.pid)
         }
         if matchingPorts != sockets { matchingPorts = sockets }
     }
@@ -172,20 +250,44 @@ final class AppStore {
     }
 
     func startMonitoring() async {
-        await refresh(forcePorts: true)
-        while !Task.isCancelled {
-            do { try await Task.sleep(for: .seconds(NSApp.isActive ? 3 : 9)) } catch { return }
-            if isMonitoring { await refresh() }
+        guard monitoringTask == nil else { return }
+        // Monitoring belongs to the app, so closing the main window does not
+        // silently freeze the menu bar's data.
+        monitoringTask = Task { [weak self] in
+            await self?.refresh(forcePorts: true)
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(NSApp.isActive ? 3 : 9)) } catch { return }
+                guard let self else { return }
+                if self.isMonitoring { await self.refresh() }
+            }
         }
     }
     func refresh(forcePorts: Bool = false) async {
-        guard !isRefreshing else { return }
+        refreshRequested = true
+        portsRequested = portsRequested || forcePorts
+        detailRequested = detailRequested || forcePorts
+        if let refreshTask { await refreshTask.value; return }
+        let task = Task { await drainRefreshes() }
+        refreshTask = task
+        await task.value
+    }
+    private func drainRefreshes() async {
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer { isRefreshing = false; refreshTask = nil }
+        while refreshRequested {
+            let forcePorts = portsRequested, forceDetail = detailRequested
+            refreshRequested = false; portsRequested = false; detailRequested = false
+            await scanOnce(forcePorts: forcePorts)
+            loadDetail(force: forceDetail)
+        }
+    }
+    private func scanOnce(forcePorts: Bool) async {
         let shouldScanPorts = forcePorts || (portsUpdatedAt.map { Date().timeIntervalSince($0) >= 6 } ?? true)
-        let portTask = shouldScanPorts ? Task.detached(priority: .utility) { try SystemService.fetchPorts() } : nil
+        let source = source
+        let portTask = shouldScanPorts ? Task { try await source.ports() } : nil
+        defer { portTask?.cancel() }
         do {
-            let result = try await Task.detached(priority: .utility) { try SystemService.fetchProcesses() }.value
+            let result = try await source.processes()
             if Task.isCancelled { return }
             let runningApps = NSWorkspace.shared.runningApplications.filter {
                 !$0.isTerminated && ($0.activationPolicy == .regular || $0.activationPolicy == .accessory) && $0.bundleURL != nil
@@ -241,28 +343,39 @@ final class AppStore {
     }
 
     func select(_ pid: Int32?, portID: String? = nil) {
-        if selectedPID == pid, (detail != nil || detailLoading) {
+        if selectedPID == pid {
             selectedPortID = portID
+            loadDetail()
             return
         }
         selectedPID = pid
         selectedPortID = portID
         detail = nil
         detailError = nil
+        detailLoadedAt = nil
         detailTask?.cancel()
+        detailLoading = false
+        loadDetail()
+    }
+    func loadDetail(force: Bool = false) {
         guard let target = selectedProcess else { detailLoading = false; return }
+        if !force && (detailLoading || (detail != nil && detailLoadedAt.map { Date().timeIntervalSince($0) < 15 } == true)) { return }
+        detailTask?.cancel()
         detailLoading = true
+        detailError = nil
         detailTask = Task {
             do {
                 // A brief settling interval coalesces fast keyboard / mouse navigation.
                 try await Task.sleep(for: .milliseconds(140))
-                let result = try await detailLoader.fetch(target)
+                let result = try await detailLoader.fetch(target, force: force)
                 guard !Task.isCancelled, selectedProcess?.identity == result.identity else { return }
                 detail = result
+                detailLoadedAt = Date()
                 detailLoading = false
             } catch {
                 guard !Task.isCancelled, selectedPID == target.pid else { return }
                 detailLoading = false
+                detail = nil
                 detailError = error.localizedDescription
             }
         }
@@ -273,22 +386,60 @@ final class AppStore {
         filter = .all
         select(pid)
     }
-    func request(_ action: ProcessAction, for target: ProcessRecord) {
+    func request(_ action: ProcessAction, for target: ProcessRecord, port explicitPort: PortRecord? = nil) {
+        guard operation?.isPending != true else { showNotice("请等待当前操作完成。", isError: true); return }
         if let reason = SystemService.actionBlockReason(for: target) { showNotice(reason, isError: true); return }
+        let port = explicitPort ?? (section == .ports && selectedPID == target.pid ? ports.first { $0.id == selectedPortID } : nil)
+        if let port, self.target(for: port) == nil { showNotice("端口归属已变化，请刷新后重试。", isError: true); return }
         let name = applications.first(where: { $0.pid == target.pid })?.name ?? target.name
-        pendingAction = PendingAction(action: action, target: target, displayName: name)
+        pendingAction = PendingAction(action: action, target: target, displayName: name, port: port)
     }
     func perform(_ pending: PendingAction) {
         pendingAction = nil
+        guard operation?.isPending != true else { return }
+        operation = OperationStatus(targetPID: pending.target.pid, message: "正在核对 \(pending.displayName) 的身份…")
+        Task { await execute(pending) }
+    }
+    private func execute(_ pending: PendingAction) async {
         do {
-            try SystemService.validateTarget(pending.target)
+            try await CommandRunner.background {
+                if let port = pending.port { try SystemService.validatePort(port, target: pending.target) }
+                else { try SystemService.validateTarget(pending.target) }
+            }
             if pending.action == .quit {
+                try SystemService.validateTarget(pending.target)
                 guard let application = NSRunningApplication(processIdentifier: pending.target.pid), !application.isTerminated else { throw SystemServiceError.staleProcess }
-                guard application.terminate() else { throw SystemServiceError.failed("应用未接受退出请求。可以切换到应用，检查是否有未保存内容。") }
+                guard application.terminate() else { throw SystemServiceError.failed("应用未接受退出请求。请检查是否有未保存内容。") }
             } else { try SystemService.send(pending.action, to: pending.target) }
-            showNotice("已向 \(pending.displayName)（\(pending.target.pid)）发送\(pending.action.title)请求。")
-            Task { await refresh(forcePorts: true) }
-        } catch { showNotice(error.localizedDescription, isError: true) }
+            operation?.message = "已发送\(pending.action.title)请求，正在确认结果…"
+            var state = SystemService.observedState(of: pending.target)
+            for _ in 0..<30 {
+                if Self.actionCompleted(pending.action, state: state) { break }
+                try await Task.sleep(for: .milliseconds(100))
+                state = SystemService.observedState(of: pending.target)
+            }
+            let completed = Self.actionCompleted(pending.action, state: state)
+            await refresh(forcePorts: true)
+            var message: String
+            if completed {
+                message = state == .exited ? "\(pending.displayName) 已退出。" : pending.action == .pause ? "\(pending.displayName) 已暂停。" : "\(pending.displayName) 已恢复。"
+                if let port = pending.port, state == .exited {
+                    if portError != nil { message += "端口复查失败，请重新扫描。" }
+                    else if ports.contains(where: { $0.favoriteKey == port.favoriteKey }) { message += "\(port.transport) \(port.port ?? 0) 仍有监听或绑定。" }
+                    else { message += "未再发现 \(port.transport) \(port.port ?? 0) 的可见占用。" }
+                }
+            } else { message = "\(pending.displayName) 尚未确认\(pending.action.title)。可检查进程状态后再操作。" }
+            operation = OperationStatus(targetPID: pending.target.pid, message: message, isPending: false, isWarning: !completed || (pending.port != nil && portError != nil))
+        } catch {
+            operation = OperationStatus(targetPID: pending.target.pid, message: error.localizedDescription, isPending: false, isWarning: true)
+        }
+    }
+    static func actionCompleted(_ action: ProcessAction, state: SystemService.ObservedState) -> Bool {
+        switch action {
+        case .quit, .terminate, .forceKill: state == .exited
+        case .pause: state == .paused
+        case .resume: state == .running
+        }
     }
     func activate(_ app: ApplicationInfo) {
         guard let target = processesByPID[app.pid],
@@ -313,18 +464,19 @@ final class AppStore {
     }
 }
 
-/// Serial execution bounds expensive lsof queries to one in flight. Cancelled
-/// selections are checked before starting work; the small cache expires quickly.
+/// Serial native detail reads with cancellation and a bounded, short-lived cache.
 actor DetailLoader {
     private var cache: [ProcessIdentity: (date: Date, detail: ProcessDetail)] = [:]
-    func fetch(_ target: ProcessRecord) throws -> ProcessDetail {
+    private let reader: @Sendable (ProcessRecord) throws -> ProcessDetail
+    init(reader: @escaping @Sendable (ProcessRecord) throws -> ProcessDetail = { try SystemService.fetchDetail(for: $0) }) { self.reader = reader }
+    func fetch(_ target: ProcessRecord, force: Bool = false) throws -> ProcessDetail {
         try Task.checkCancellation()
         guard let identity = target.identity,
               SystemService.readIdentity(pid: target.pid) == identity else { throw SystemServiceError.staleProcess }
         let now = Date()
         cache = cache.filter { now.timeIntervalSince($0.value.date) < 15 }
-        if let cached = cache[identity] { return cached.detail }
-        let detail = try SystemService.fetchDetail(for: target)
+        if !force, let cached = cache[identity] { return cached.detail }
+        let detail = try reader(target)
         try Task.checkCancellation()
         if cache.count >= 64 { cache.removeAll(keepingCapacity: true) }
         cache[identity] = (now, detail)

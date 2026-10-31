@@ -10,7 +10,7 @@ struct RenderPreviews {
         NSApplication.shared.setActivationPolicy(.prohibited)
         let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
-        let store = AppStore()
+        let store = AppStore(defaults: nil)
         let fixtures: [(Int32, String, String, Double, UInt64)] = [
             (2401, "Terminal", "/System/Applications/Utilities/Terminal.app", 8.4, 148),
             (2402, "Safari", "/Applications/Safari.app", 5.2, 432),
@@ -40,6 +40,11 @@ struct RenderPreviews {
             PortRecord(pid: 3256, processName: "redis-server", transport: "TCP", address: "127.0.0.1:6379"),
             PortRecord(pid: 3290, processName: "postgres", transport: "TCP", address: "127.0.0.1:5432"),
         ]
+        store.ports = store.ports.map { socket in
+            var value = socket; value.identity = records.first { $0.pid == socket.pid }?.identity; return value
+        }
+        store.saveFavorite(PortFavorite(port: 3000, transport: "TCP", name: "网站前端"))
+        store.saveFavorite(PortFavorite(port: 9000, transport: "TCP", name: "本地 API"))
         store.updatedAt = nil
         store.portsUpdatedAt = nil
         for (name, section, dark) in [("procscope-preview", Section.applications, false), ("procscope-ports", .ports, false), ("procscope-dark", .applications, true)] {

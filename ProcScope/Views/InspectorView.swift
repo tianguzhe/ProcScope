@@ -78,7 +78,10 @@ struct InspectorView: View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("进程 CPU").font(.system(size: 9)).foregroundStyle(Palette.secondary)
-                Text(String(format: "%.1f", record.cpu)) + Text(" %").font(.system(size: 11))
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(String(format: "%.1f", record.cpu))
+                    Text("%").font(.system(size: 11))
+                }
             }.font(.system(size: 21, weight: .medium, design: .rounded)).foregroundStyle(Palette.ink).frame(maxWidth: .infinity, alignment: .leading)
                 .help("ps 报告的进程 CPU 使用率；单个核心为 100%。")
             Rectangle().fill(Palette.line).frame(width: 1, height: 35).padding(.trailing, 17)
@@ -114,6 +117,7 @@ struct InspectorView: View {
                         Spacer(minLength: 0)
                         Circle().fill(Palette.green).frame(width: 5, height: 5)
                     }.padding(10).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 6))
+                        .contextMenu { PortContextActions(port: port) }
                 }
             }
         }
@@ -207,7 +211,7 @@ struct InspectorView: View {
                 } label: { Image(systemName: "ellipsis").font(.system(size: 13)).frame(width: 28, height: 34) }
                     .menuStyle(.borderlessButton).fixedSize().padding(.horizontal, 7).background(Palette.canvas, in: RoundedRectangle(cornerRadius: 7)).overlay(RoundedRectangle(cornerRadius: 7).stroke(Palette.line))
                     .help("暂停、恢复或强制结束")
-            }.disabled(blocked != nil).padding(.horizontal, 21).padding(.bottom, 18)
+            }.disabled(blocked != nil || store.operation?.isPending == true).padding(.horizontal, 21).padding(.bottom, 18)
         }.background(Palette.card)
     }
     private func infoRow(_ title: String, value: String) -> some View {
