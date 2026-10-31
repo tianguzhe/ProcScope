@@ -1,0 +1,60 @@
+name: Release DMG
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: macos-26
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check version tag
+        shell: bash
+        run: |
+          version=$(bash scripts/version.sh)
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Release tag does not match Version.xcconfig ($version)"
+            exit 1
+          fi
+      - name: Test
+        run: bash scripts/ci-annotate.sh Test bash scripts/test.sh
+      - name: Build and verify DMG
+        run: bash scripts/ci-annotate.sh Package bash scripts/package-dmg.sh
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          cat > release/notes.md <<'NOTES'
+          ## 安装
+          下载 **ProcScope.dmg**，打开后将 ProcScope 拖入 Applications。
+          支持 macOS 14+，安装包同时包含 Apple Silicon 和 Intel。
+
+          安装包采用 ad-hoc 签名，尚未经过 Apple 公证。首次打开如被拦截，请在「系统设置 → 隐私与安全性」中允许打开。
+
+          ## 校验
+          同时下载 `ProcScope.dmg.sha256`，在下载目录运行 `shasum -a 256 -c ProcScope.dmg.sha256`。
+          NOTES
+          # A rerun may resume an interrupted draft upload; never overwrite a published release.
+          if gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft' > release/draft-state 2>/dev/null; then
+            [ "$(cat release/draft-state)" = true ] || { echo 'Release is already published'; exit 1; }
+          else
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft \
+              --title "ProcScope $GITHUB_REF_NAME" --notes-file release/notes.md --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" release/ProcScope.dmg release/ProcScope.dmg.sha256 --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+      - name: Upload diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-diagnostics
+          path: build/test/Logs/Test/*.xcresult
+          retention-days: 7

@@ -1,0 +1,109 @@
+<div align="center">
+
+<img src="docs/procscope-icon.png" width="112" alt="ProcScope 图标">
+
+# ProcScope · 进程透镜
+
+**看清每一个运行中的任务。**
+
+原生 macOS 应用、进程与端口观察工具。找到资源占用的来源，追溯启动命令，确认后再管理。
+
+[![Release](https://img.shields.io/github/v/release/tianguzhe/ProcScope?color=16766c)](https://github.com/tianguzhe/ProcScope/releases/latest)
+[![Build](https://github.com/tianguzhe/ProcScope/actions/workflows/ci.yml/badge.svg)](https://github.com/tianguzhe/ProcScope/actions/workflows/ci.yml)
+![macOS](https://img.shields.io/badge/macOS-14%2B-lightgrey)
+![Universal](https://img.shields.io/badge/Apple%20Silicon%20%2B%20Intel-Universal-16766c)
+
+[**下载最新 DMG**](https://github.com/tianguzhe/ProcScope/releases/latest/download/ProcScope.dmg) · [产品介绍](https://tianguzhe.github.io/procscope/) · [版本记录](https://github.com/tianguzhe/ProcScope/releases)
+
+<img src="docs/procscope-preview.png" width="1000" alt="ProcScope 应用列表与进程详情，使用示例数据">
+
+</div>
+
+## 功能
+
+- **应用**：汇总原生应用及关联辅助进程资源，区分前台、后台、窗口隐藏与暂停；嵌套应用归属到最具体的运行中应用包。
+- **全部进程**：展示系统快照，支持名称、PID、路径搜索，以及 CPU、内存、PID、名称排序。
+- **监听端口**：查看当前权限可见的 TCP 监听与 UDP 绑定，按端口、应用、进程和协议筛选。
+- **追溯来源**：可执行文件、启动命令、工作目录、父进程链、直接子进程和端口。
+- **管理操作**：正常退出应用、结束、强制结束、暂停和恢复进程；每次操作先确认，再验证进程身份。
+- **原生体验**：深浅色适配、柔和动效、系统“减少动态效果”支持；菜单栏快捷入口可在设置中开启。
+- **轻量更新**：按字段刷新界面，缓存索引与聚合，详情查询合并、串行执行与短期缓存；后台采集降频。
+- **本机处理**：无账号、无网络上传、无第三方运行依赖，无需安装 witr。
+
+快捷键：`⌘F` 搜索，`⌘R` 刷新，`⌘1/2/3` 切换视图，`⌘0` 打开主窗口。
+
+## 安装
+
+1. 下载 [`ProcScope.dmg`](https://github.com/tianguzhe/ProcScope/releases/latest/download/ProcScope.dmg)。
+2. 打开磁盘镜像，将 **ProcScope** 拖入 **Applications / 应用程序**。
+3. 从应用程序文件夹打开。更新时先退出旧版，再替换应用。
+
+<img src="docs/procscope-installer.png" width="680" alt="ProcScope DMG 拖动安装窗口">
+
+支持 macOS 14+，一个安装包同时包含 Apple Silicon 与 Intel。发布包采用 ad-hoc 签名，尚未进行 Apple Developer ID 签名与公证。首次打开如被 macOS 拦截，请在「系统设置 → 隐私与安全性」中允许打开。
+
+每个 Release 同时提供 `ProcScope.dmg.sha256`。将两个文件下载到同一目录后校验：
+
+```sh
+shasum -a 256 -c ProcScope.dmg.sha256
+```
+
+## 状态与边界
+
+- 等待事件和后台运行是正常状态，不表示应用卡住；当前不检测窗口是否无响应。
+- CPU 采用 `ps` 的进程口径，单核为 100%，多核合计可超过 100%。RSS 可能重复统计共享页面，不等于整机实际已用内存。
+- 列表的应用指标包含关联进程；详情指标对应当前所选 PID。
+- 其他用户或受保护进程的目录、端口等信息可能不可见。基本功能不要求辅助功能、屏幕录制或完全磁盘访问权限。
+- 只管理当前用户进程；PID 0/1、其他用户和 ProcScope 自身为只读。操作前核对 PID 与启动时间，只对所选 PID 发信号，不递归结束子进程。
+- 强制结束可能丢失未保存内容；暂停保留内存与端口；受管理的服务可能自动重启。
+- 父进程链来自当前快照，不能还原进程退出后的完整历史。
+- 前台约每 3 秒采集进程，后台约 9 秒；端口周期扫描间隔至少 6 秒，实际随循环及命令耗时变化。手动刷新发起完整采集；刷新不堆积，命令设有超时。
+- 应用不启用 App Sandbox，以检查和管理其他进程。
+
+## 构建与测试
+
+需要 macOS、Xcode 16+。已提交 Xcode 项目，日常构建不需要 XcodeGen。
+
+```sh
+bash scripts/test.sh                     # XCTest，只对测试自己创建的 sleep 进程执行信号
+bash scripts/build.sh                    # 构建、签名并验证 Universal 应用
+bash scripts/package-dmg.sh --skip-build # 为刚构建的应用打包
+bash scripts/build-release.sh            # 一步构建应用 + DMG + SHA-256
+bash scripts/preview.sh                  # 使用示例数据渲染公开界面截图 → docs/
+```
+
+产物：`release/ProcScope.app`、`release/ProcScope.dmg`、`release/ProcScope.dmg.sha256`。可通过 `PROCSCOPE_BUILD_DIR` 调整构建缓存目录，通过 `PROCSCOPE_OUTPUT_DIR` 调整产物目录。后者建议使用绝对路径。
+
+DMG 打包需要 Python 3.10+，首次在 `build/dmg-venv/` 安装锁定的 `dmgbuild`、`ds-store`、`mac-alias`。仅构建时使用，应用运行不依赖 Python。Finder 窗口设置直接写入 `.DS_Store`，不依赖 Finder、AppleScript 或辅助功能权限；背景含 1× / 2× 分辨率。
+
+`--skip-build` 会校验签名、双架构、最低系统版本与版本号；同版本源码发生变化后应重新构建再打包。应用先在临时目录完成校验，再替换旧产物。DMG 内的应用副本也会执行严格签名校验。
+
+修改 `project.yml` 后运行 `xcodegen generate`。版本号统一放在 `Version.xcconfig`，Xcode、打包脚本和发布标签共用。
+
+## 自动化发布
+
+1. 修改 `Version.xcconfig` 的 `MARKETING_VERSION` 和 `CURRENT_PROJECT_VERSION`。
+2. 提交到干净的 `main` 分支。
+3. 运行 `bash scripts/release.sh`。
+
+脚本先运行测试，再原子推送 `main` 和 `v<版本>` 标签。GitHub Actions 在 `macos-26` 上检查版本、运行测试、构建 Universal DMG，上传固定名称的安装包与 SHA-256，再将草稿发布为正式 Release。发布下载链接始终为：
+
+```
+https://github.com/tianguzhe/ProcScope/releases/latest/download/ProcScope.dmg
+```
+
+普通 push / PR 自动测试并验证双架构构建；只有版本标签触发 Release。失败步骤会显示摘要注释，测试诊断作为构建附件保留。已发布版本不会在重跑时被覆盖；上传中断的草稿可以继续。
+
+产品落地页位于 [`tianguzhe.github.io`](https://github.com/tianguzhe/tianguzhe.github.io)，推送该站点的 `main` 自动部署。应用版本更新无需改动下载地址。
+
+## 项目结构
+
+- `ProcScope/`：SwiftUI 界面、数据模型和系统服务。
+- `ProcScopeTests/`：解析、索引、进程身份保护和受控信号测试。
+- `Version.xcconfig`：统一版本配置。
+- `Tools/`：DMG 绘图、Finder 布局、固定版本打包依赖、示例截图渲染器。
+- `scripts/`：构建、测试、签名校验、打包、截图和发布脚本。
+- `.github/workflows/`：持续构建与标签发布。
+- `docs/`：图标、使用示例数据的浅深色界面与安装预览。
+
+发布流程借鉴同系列的 [QuietLock](https://github.com/tianguzhe/QuietLock)。性能与实机验证记录见 [VALIDATION.md](VALIDATION.md)，视觉规范见 [DESIGN.md](DESIGN.md)。

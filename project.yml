@@ -1,0 +1,55 @@
+name: ProcScope
+options:
+  bundleIdPrefix: com.yikwing
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+configFiles:
+  Debug: Version.xcconfig
+  Release: Version.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ARCHS: "arm64 x86_64"
+    ONLY_ACTIVE_ARCH: NO
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Manual
+    ENABLE_HARDENED_RUNTIME: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+targets:
+  ProcScope:
+    type: application
+    platform: macOS
+    sources: [ProcScope]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.yikwing.ProcScope
+        PRODUCT_NAME: ProcScope
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_NSHumanReadableCopyright: "© 2026 ProcScope"
+        INFOPLIST_KEY_CFBundleDisplayName: ProcScope
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_APP_SANDBOX: NO
+        SWIFT_OBJC_BRIDGING_HEADER: ProcScope/Services/ProcBridge.h
+        COMBINE_HIDPI_IMAGES: YES
+  ProcScopeTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [ProcScopeTests]
+    dependencies:
+      - target: ProcScope
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.yikwing.ProcScopeTests
+schemes:
+  ProcScope:
+    build:
+      targets:
+        ProcScope: all
+    test:
+      targets: [ProcScopeTests]
+    archive:
+      config: Release

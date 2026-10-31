@@ -1,0 +1,10 @@
+.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+release/
+# Local captures can contain running-process names and personal paths.
+/screenshots/
+__pycache__/
+*.pyc
