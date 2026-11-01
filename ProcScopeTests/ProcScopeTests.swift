@@ -413,6 +413,87 @@ final class ProcScopeTests: XCTestCase {
         XCTAssertTrue(child.isRunning)
     }
 
+    func testSystemCPUUsesIntervalTicksIncludingNiceTime() throws {
+        let before = CPUTicks(user: 100, system: 100, idle: 800, nice: 10)
+        let after = CPUTicks(user: 140, system: 125, idle: 925, nice: 20)
+        let usage = try XCTUnwrap(after.usage(since: before))
+        XCTAssertEqual(usage.user, 25, accuracy: 0.0001)
+        XCTAssertEqual(usage.system, 12.5, accuracy: 0.0001)
+        XCTAssertEqual(usage.busy, 37.5, accuracy: 0.0001)
+    }
+
+    func testSystemCPUHandlesIdleFullLoadAndCounterRollover() throws {
+        let zero = CPUTicks(user: 0, system: 0, idle: 0, nice: 0)
+        XCTAssertNil(zero.usage(since: zero))
+        XCTAssertEqual(CPUTicks(user: 0, system: 0, idle: 100, nice: 0).usage(since: zero)?.busy, 0)
+        XCTAssertEqual(CPUTicks(user: 75, system: 25, idle: 0, nice: 0).usage(since: zero)?.busy, 100)
+        let old = CPUTicks(user: UInt32.max - 9, system: 0, idle: 0, nice: 0)
+        let wrapped = try XCTUnwrap(CPUTicks(user: 10, system: 0, idle: 80, nice: 0).usage(since: old))
+        XCTAssertEqual(wrapped.busy, 20, accuracy: 0.0001)
+    }
+
+    func testSystemCPUSamplerWaitsForBaselineAndResetsLongGaps() async throws {
+        let inputs = CPUInputs()
+        let sampler = SystemCPUSampler(read: { try inputs.read() }, clock: { inputs.time })
+        let initial = try await sampler.sample()
+        XCTAssertNil(initial)
+        inputs.set(time: 0.1, ticks: CPUTicks(user: 20, system: 10, idle: 70, nice: 0))
+        let rapid = try await sampler.sample()
+        XCTAssertNil(rapid)
+        inputs.set(time: 1, ticks: CPUTicks(user: 20, system: 10, idle: 70, nice: 0))
+        let sampled = try await sampler.sample()
+        XCTAssertEqual(sampled?.busy, 30)
+        inputs.set(time: 32, ticks: CPUTicks(user: 220, system: 110, idle: 770, nice: 0))
+        let resumed = try await sampler.sample()
+        XCTAssertNil(resumed)
+        inputs.set(time: 33, ticks: CPUTicks(user: 240, system: 120, idle: 840, nice: 0))
+        let fresh = try await sampler.sample()
+        XCTAssertEqual(fresh?.busy, 30)
+    }
+
+    func testSystemCPUSamplerReestablishesBaselineAfterFailure() async throws {
+        let inputs = CPUInputs()
+        let sampler = SystemCPUSampler(read: { try inputs.read() }, clock: { inputs.time })
+        _ = try await sampler.sample()
+        inputs.set(time: 1, ticks: CPUTicks(user: 20, system: 10, idle: 70, nice: 0), fails: true)
+        do { _ = try await sampler.sample(); XCTFail("Expected read failure") } catch { }
+        inputs.set(time: 2, ticks: CPUTicks(user: 40, system: 20, idle: 140, nice: 0))
+        let recovered = try await sampler.sample()
+        XCTAssertNil(recovered)
+    }
+
+    @MainActor
+    func testSystemCPUIsIndependentOfProcessScanFailure() async {
+        let source = SnapshotSource(processes: { throw SystemServiceError.failed("fixture") }, ports: { [] }, cpu: { CPUUsage(user: 20, system: 5) })
+        let store = AppStore(defaults: nil, source: source)
+        store.processes = SystemService.parseProcesses("42 1 501 180 100 S 00:01 /bin/fixture")
+        await store.refresh()
+        XCTAssertNotNil(store.scanError)
+        XCTAssertEqual(store.totalCPU, 180)
+        XCTAssertEqual(store.systemCPU?.busy, 25)
+        XCTAssertEqual(store.systemCPUHistory, [25])
+    }
+
+    @MainActor
+    func testFailedCPUSampleDoesNotDisplayZeroOrStaleReading() async {
+        let source = SnapshotSource(processes: { [] }, ports: { [] }, cpu: { throw SystemServiceError.failed("fixture") })
+        let store = AppStore(defaults: nil, source: source)
+        store.applySystemCPU(CPUUsage(user: 20, system: 5))
+        await store.refresh()
+        XCTAssertNil(store.systemCPU)
+        XCTAssertNotNil(store.systemCPUError)
+        XCTAssertTrue(store.systemCPUHistory.isEmpty)
+    }
+
+    func testNativeSystemCPUIntervalIsWithinTotalCapacity() async throws {
+        let before = try CPUTicks.read()
+        try await Task.sleep(for: .milliseconds(250))
+        let usage = try XCTUnwrap(CPUTicks.read().usage(since: before))
+        XCTAssertTrue((0...100).contains(usage.busy))
+        XCTAssertGreaterThanOrEqual(usage.user, 0)
+        XCTAssertGreaterThanOrEqual(usage.system, 0)
+    }
+
     private func makeChild() throws -> Process {
         let child = Process()
         child.executableURL = URL(fileURLWithPath: "/bin/sleep")
@@ -443,4 +524,21 @@ private actor ScanProbe {
     }
     func ports() -> [PortRecord] { portCount += 1; return [] }
     func release() { gate?.resume(); gate = nil }
+}
+
+private final class CPUInputs: @unchecked Sendable {
+    private let lock = NSLock()
+    private var timestamp: TimeInterval = 0
+    private var ticks = CPUTicks(user: 0, system: 0, idle: 0, nice: 0)
+    private var fails = false
+    var time: TimeInterval { lock.lock(); defer { lock.unlock() }; return timestamp }
+    func read() throws -> CPUTicks {
+        lock.lock(); defer { lock.unlock() }
+        if fails { throw SystemServiceError.failed("fixture") }
+        return ticks
+    }
+    func set(time: TimeInterval, ticks: CPUTicks, fails: Bool = false) {
+        lock.lock(); defer { lock.unlock() }
+        timestamp = time; self.ticks = ticks; self.fails = fails
+    }
 }

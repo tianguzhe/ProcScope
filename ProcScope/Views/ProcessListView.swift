@@ -14,10 +14,10 @@ struct ProcessListView: View {
                 portSummary
             } else {
                 HStack(spacing: 10) {
-                    StatCard(label: "进程 CPU 合计", value: String(format: "%.1f%%", store.totalCPU), symbol: "cpu", caption: "单核 100% · 全部进程", history: store.activityHistory)
-                    StatCard(label: "驻留内存合计", value: store.totalMemory.memoryLabel, symbol: "memorychip", caption: "RSS · 含重复共享页面", color: Palette.orange, history: store.memoryHistory)
+                    SystemCPUCard(usage: store.systemCPU, history: store.systemCPUHistory, error: store.systemCPUError, isMonitoring: store.isMonitoring)
+                    StatCard(label: "进程内存合计", value: store.totalMemory.memoryLabel, symbol: "memorychip", caption: "RSS · 共享页面可能重复", color: Palette.orange, history: store.memoryHistory)
                     StatCard(label: "监听与绑定", value: String(store.ports.count), symbol: "point.3.connected.trianglepath.dotted", caption: "TCP 监听 / UDP 绑定", color: Palette.green, history: store.portHistory)
-                }.padding(.horizontal, 28).padding(.bottom, 26)
+                }.frame(height: 150).padding(.horizontal, 28).padding(.bottom, 26)
             }
             searchBar.padding(.horizontal, 28).padding(.bottom, 14)
             filters.padding(.horizontal, 28).padding(.bottom, 14)
@@ -117,6 +117,7 @@ struct ProcessListView: View {
                 Text(store.section == .applications ? "应用" : "进程").frame(maxWidth: .infinity, alignment: .leading)
                 Text("状态").frame(width: 67, alignment: .leading)
                 Button { store.sort = .cpu } label: { Text(store.sort == .cpu ? "CPU ↓" : "CPU").foregroundStyle(store.sort == .cpu ? Palette.accent : Palette.secondary).frame(width: 60, alignment: .trailing) }.buttonStyle(.plain)
+                    .help("进程 CPU：一个核心满载为 100%，使用多个核心时可以超过 100%。顶部系统 CPU 按整机总容量计算。")
                 Button { store.sort = .memory } label: { Text(store.sort == .memory ? "内存 ↓" : "内存").foregroundStyle(store.sort == .memory ? Palette.accent : Palette.secondary).frame(width: 72, alignment: .trailing) }.buttonStyle(.plain)
                 Text("PID").frame(width: 55, alignment: .trailing)
             }
@@ -201,7 +202,8 @@ struct ProcessListView: View {
         HStack(spacing: 7) {
             Circle().fill((store.section == .ports ? store.portError : store.scanError) == nil ? (store.isMonitoring ? Palette.green : Palette.secondary) : Palette.orange).frame(width: 5, height: 5)
             Text("\(store.section == .ports ? store.matchingPorts.count : store.matchingProcesses.count) 项").font(.system(size: 10))
-            if store.section == .applications { Text("· CPU / 内存含关联进程").font(.system(size: 9)) }
+            if store.section == .applications { Text("· 含关联进程 · CPU 单核 100%").font(.system(size: 9)) }
+            if store.section == .processes { Text("· CPU 单核 100%，可超过 100%").font(.system(size: 9)) }
             if store.section == .ports { Text("· 仅当前权限可见 · \(store.offlineFavorites.count) 个收藏未发现占用").font(.system(size: 9)) }
             Spacer()
             if let date = store.section == .ports ? store.portsUpdatedAt : store.updatedAt {

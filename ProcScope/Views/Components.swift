@@ -86,15 +86,16 @@ extension ProcessState {
 struct Sparkline: View {
     let values: [Double]
     var color: Color = Palette.accent
+    var range: ClosedRange<Double>? = nil
     var body: some View {
         Canvas { context, size in
             guard !values.isEmpty else { return }
-            let low = values.min() ?? 0
-            let high = values.max() ?? 1
-            let span = max(high - low, max(high * 0.08, 1))
+            let low = range?.lowerBound ?? values.min() ?? 0
+            let high = range?.upperBound ?? values.max() ?? 1
+            let span = range == nil ? max(high - low, max(high * 0.08, 1)) : max(high - low, 1)
             let points = values.enumerated().map { index, value in
                 CGPoint(x: values.count == 1 ? size.width : CGFloat(index) / CGFloat(values.count - 1) * size.width,
-                        y: size.height - 4 - CGFloat((value - low) / span) * (size.height - 8))
+                        y: size.height - 4 - CGFloat(min(1, max(0, (value - low) / span))) * (size.height - 8))
             }
             var line = Path()
             line.addLines(points)
@@ -110,6 +111,70 @@ struct Sparkline: View {
                 context.fill(Path(ellipseIn: CGRect(x: last.x - 2, y: last.y - 2, width: 4, height: 4)), with: .color(color))
             }
         }.accessibilityHidden(true)
+    }
+}
+
+struct SystemCPUCard: View {
+    let usage: CPUUsage?
+    let history: [Double]
+    let error: String?
+    let isMonitoring: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var showsExplanation = false
+    private var value: String { usage.map { String(format: "%.1f%%", $0.busy) } ?? "—" }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 7) {
+                Image(systemName: "cpu").foregroundStyle(Palette.accent)
+                Text("系统 CPU").foregroundStyle(Palette.secondary)
+                Spacer(minLength: 0)
+                Button { showsExplanation.toggle() } label: {
+                    Image(systemName: "info.circle").foregroundStyle(Palette.secondary)
+                }.buttonStyle(.plain).accessibilityLabel("了解系统与进程 CPU 的区别")
+                    .popover(isPresented: $showsExplanation) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("看整机，也看进程").font(.system(size: 14, weight: .semibold))
+                            Text("这里显示所有核心在采样间隔内的总体忙碌比例，范围为 0–100%。")
+                            Text("列表中的进程 CPU 以单个核心为 100%；例如 200% 表示约占满两个核心。")
+                        }.font(.system(size: 12)).foregroundStyle(Palette.ink).lineSpacing(4).padding(20).frame(width: 280)
+                    }
+            }.font(.system(size: 11, weight: .medium))
+            HStack(alignment: .lastTextBaseline, spacing: 5) {
+                Text(value).font(.system(size: 29, weight: .medium, design: .rounded)).tracking(-0.8)
+                    .monospacedDigit().foregroundStyle(Palette.ink).lineLimit(1).minimumScaleFactor(0.7)
+                    .contentTransition(.numericText()).animation(reduceMotion ? nil : Motion.gentle, value: value)
+                Spacer(minLength: 0)
+                Sparkline(values: history, range: 0...100).frame(width: 48, height: 26)
+            }
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Palette.line)
+                    if let usage {
+                        HStack(spacing: 0) {
+                            Rectangle().fill(Palette.accent).frame(width: proxy.size.width * usage.user / 100)
+                            Rectangle().fill(Palette.orange).frame(width: proxy.size.width * usage.system / 100)
+                        }.clipShape(Capsule())
+                    }
+                }
+            }.frame(height: 4).accessibilityHidden(true)
+            if let usage {
+                HStack(spacing: 4) {
+                    Text(String(format: "用户 %.1f%%", usage.user)).foregroundStyle(Palette.accent)
+                    Spacer(minLength: 0)
+                    Text(String(format: "系统 %.1f%%", usage.system)).foregroundStyle(Palette.orange)
+                }.font(.system(size: 9)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
+            } else {
+                Text(error == nil ? (isMonitoring ? "采样中 · 等待下一次更新" : "自动刷新已暂停") : "读取失败 · 请刷新")
+                    .font(.system(size: 9)).foregroundStyle(error == nil ? Palette.secondary : Palette.orange)
+                    .lineLimit(1).minimumScaleFactor(0.8)
+            }
+            Text(isMonitoring ? "整机总容量 · 0–100%" : "已暂停 · 上次采样结果")
+                .font(.system(size: 9)).foregroundStyle(Palette.secondary)
+        }.padding(17).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(Palette.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Palette.accent.opacity(0.2)))
+            .help(error ?? "整机 CPU 使用率，包含用户与系统使用；曲线固定为 0–100% 刻度。")
     }
 }
 
@@ -138,7 +203,7 @@ struct StatCard: View {
             }
             Text(caption).font(.system(size: 10)).foregroundStyle(Palette.secondary).lineLimit(1)
         }
-        .padding(17).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(17).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Palette.card, in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(Palette.line.opacity(0.8), lineWidth: 1))
     }

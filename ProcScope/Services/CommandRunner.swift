@@ -90,6 +90,7 @@ enum CommandRunner {
 struct SnapshotSource: Sendable {
     var processes: @Sendable () async throws -> [ProcessRecord]
     var ports: @Sendable () async throws -> [PortRecord]
+    var cpu: @Sendable () async throws -> CPUUsage? = { try await SystemCPUSampler.shared.sample() }
     static let live = SnapshotSource(
         processes: { try await CommandRunner.background { try SystemService.fetchProcesses() } },
         ports: { try await CommandRunner.background { try SystemService.fetchPorts() } }

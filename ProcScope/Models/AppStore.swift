@@ -49,7 +49,9 @@ final class AppStore {
     var notice: Notice?
     private(set) var matchingProcesses: [ProcessRecord] = []
     private(set) var matchingPorts: [PortRecord] = []
-    private(set) var activityHistory: [Double] = []
+    private(set) var systemCPUHistory: [Double] = []
+    private(set) var systemCPU: CPUUsage?
+    private(set) var systemCPUError: String?
     private(set) var memoryHistory: [Double] = []
     private(set) var portHistory: [Double] = []
     private(set) var totalCPU: Double = 0
@@ -284,8 +286,9 @@ final class AppStore {
     private func scanOnce(forcePorts: Bool) async {
         let shouldScanPorts = forcePorts || (portsUpdatedAt.map { Date().timeIntervalSince($0) >= 6 } ?? true)
         let source = source
+        let cpuTask = Task { try await source.cpu() }
         let portTask = shouldScanPorts ? Task { try await source.ports() } : nil
-        defer { portTask?.cancel() }
+        defer { portTask?.cancel(); cpuTask.cancel() }
         do {
             let result = try await source.processes()
             if Task.isCancelled { return }
@@ -302,7 +305,6 @@ final class AppStore {
             let livePaths = Set(infos.map(\.bundlePath))
             iconCache = iconCache.filter { livePaths.contains($0.key) }
             applyProcessSnapshot(result, applications: infos)
-            activityHistory = Array((activityHistory + [totalCPU]).suffix(30))
             memoryHistory = Array((memoryHistory + [Double(totalMemory)]).suffix(30))
             scanError = nil
             updatedAt = Date()
@@ -312,6 +314,13 @@ final class AppStore {
                 select(first?.pid)
             }
         } catch { scanError = error.localizedDescription }
+        do {
+            applySystemCPU(try await cpuTask.value)
+        } catch {
+            systemCPU = nil
+            systemCPUError = error.localizedDescription
+            systemCPUHistory = []
+        }
         if let portTask {
             do {
                 let sockets = try await portTask.value
@@ -323,6 +332,13 @@ final class AppStore {
             } catch { portError = error.localizedDescription }
         }
 
+    }
+
+    func applySystemCPU(_ usage: CPUUsage?) {
+        systemCPU = usage
+        systemCPUError = nil
+        if let usage { systemCPUHistory = Array((systemCPUHistory + [usage.busy]).suffix(30)) }
+        else { systemCPUHistory = [] }
     }
 
     /// Capture selection when applying the result, since the user may select another

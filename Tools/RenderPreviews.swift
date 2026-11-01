@@ -34,6 +34,9 @@ struct RenderPreviews {
             record(1, parent: 0, cpu: 0.0, memory: 18, path: "/sbin/launchd"),
         ]
         store.applyProcessSnapshot(records, applications: apps)
+        for busy in [18.0, 21.2, 20.4, 25.8, 23.0, 27.4, 24.6] {
+            store.applySystemCPU(CPUUsage(user: busy - 6.2, system: 6.2))
+        }
         store.ports = [
             PortRecord(pid: 3184, processName: "node", transport: "TCP", address: "127.0.0.1:3000"),
             PortRecord(pid: 3210, processName: "python3", transport: "TCP", address: "127.0.0.1:8000"),

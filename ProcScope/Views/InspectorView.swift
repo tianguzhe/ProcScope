@@ -82,8 +82,10 @@ struct InspectorView: View {
                     Text(String(format: "%.1f", record.cpu))
                     Text("%").font(.system(size: 11))
                 }
+                Text("单核 100% · 可超过 100%")
+                    .font(.system(size: 8)).foregroundStyle(Palette.secondary).fixedSize(horizontal: true, vertical: false)
             }.font(.system(size: 21, weight: .medium, design: .rounded)).foregroundStyle(Palette.ink).frame(maxWidth: .infinity, alignment: .leading)
-                .help("ps 报告的进程 CPU 使用率；单个核心为 100%。")
+                .help("ps 报告的进程 CPU 使用率；100% 约占满一个核心，200% 约占满两个核心。与顶部整机 CPU 的口径不同。")
             Rectangle().fill(Palette.line).frame(width: 1, height: 35).padding(.trailing, 17)
             VStack(alignment: .leading, spacing: 6) {
                 Text("驻留内存").font(.system(size: 9)).foregroundStyle(Palette.secondary)

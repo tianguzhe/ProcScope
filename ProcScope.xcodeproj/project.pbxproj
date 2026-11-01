@@ -10,6 +10,7 @@
 		17CAA967A0A2558459FB0935 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 315EFF5E6939E563E6323BD9 /* Assets.xcassets */; };
 		22C14177D2F793602330AC06 /* CommandRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71B93E2D98C687B94D321025 /* CommandRunner.swift */; };
 		232EA9241ABEEB12D634DFDB /* ProcScopeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27237B5AF579574F49CABF7B /* ProcScopeTests.swift */; };
+		40D6EA931F6E3910A8D9CD7E /* SystemCPUSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89A5128D5035F452E73E8431 /* SystemCPUSampler.swift */; };
 		4381190F010131A0F4806A83 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0FBBEE4C982DDF136458DB /* SidebarView.swift */; };
 		49FFCB95278BD2F4FBA1D39A /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5739316E3C44FCB3748200C4 /* Components.swift */; };
 		50DB43D2D099987B663DA577 /* ProcessModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32DEF79663CB7C2E081D80F9 /* ProcessModels.swift */; };
@@ -46,6 +47,7 @@
 		6578B4D143BFDEBE63CCCA61 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		71B93E2D98C687B94D321025 /* CommandRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandRunner.swift; sourceTree = "<group>"; };
 		85B77A9246465C38885388CB /* PortFavorite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortFavorite.swift; sourceTree = "<group>"; };
+		89A5128D5035F452E73E8431 /* SystemCPUSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemCPUSampler.swift; sourceTree = "<group>"; };
 		9FC201D2D54BD77831C4CD82 /* SystemService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemService.swift; sourceTree = "<group>"; };
 		A2592A0DA154783270B2671D /* InspectorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorView.swift; sourceTree = "<group>"; };
 		CF0FBBEE4C982DDF136458DB /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
@@ -107,6 +109,7 @@
 			children = (
 				71B93E2D98C687B94D321025 /* CommandRunner.swift */,
 				FAB95409E860F0AA5BB6DE6B /* ProcBridge.h */,
+				89A5128D5035F452E73E8431 /* SystemCPUSampler.swift */,
 				9FC201D2D54BD77831C4CD82 /* SystemService.swift */,
 			);
 			path = Services;
@@ -247,6 +250,7 @@
 				A400E2176A33EB67DCD1F544 /* ProcessListView.swift in Sources */,
 				50DB43D2D099987B663DA577 /* ProcessModels.swift in Sources */,
 				4381190F010131A0F4806A83 /* SidebarView.swift in Sources */,
+				40D6EA931F6E3910A8D9CD7E /* SystemCPUSampler.swift in Sources */,
 				9159053E910AC47FBAD22727 /* SystemService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
