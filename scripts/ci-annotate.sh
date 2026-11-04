@@ -4,8 +4,10 @@ set -uo pipefail
 if [ "$#" -lt 2 ]; then printf 'Usage: %s <title> <command> [args...]\n' "$0" >&2; exit 2; fi
 annotation_title="$1"
 shift
-log_path=$(mktemp)
-trap 'rm -f "$log_path"' EXIT
+project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+python3 "$project_root/scripts/build_isolation.py" prepare --root "$project_root" >/dev/null || exit $?
+# BSD mktemp requires the X placeholders at the end of its template.
+log_path=$(mktemp "$project_root/.build/artifacts.noindex/logs/ci.log.XXXXXX") || exit $?
 "$@" 2>&1 | tee "$log_path"
 command_status=${PIPESTATUS[0]}
 if [ "$command_status" -ne 0 ]; then

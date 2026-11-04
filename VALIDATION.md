@@ -85,3 +85,16 @@ Debug 构建，固定 800 个进程、80 个应用；同一台机器上的最后
 - 最终完整测试：29 项通过，0 失败、0 跳过、0 运行时警告。报告：`build/test/Logs/Test/Test-ProcScope-2026.10.31_19-10-43--0700.xcresult`。首次运行的测试宿主在一个测试完成前退出（code 0），完整重跑全部通过。
 - Release 的 arm64 / x86_64 构建、签名、最低系统版本及 DMG 完整性检查通过。构建日志无源码警告。
 - 已检查实际 SwiftUI 渲染的浅色与深色界面，系统 CPU 卡片与进程口径说明无截断；示例图使用固定演示数据。
+
+## 构建产物与应用搜索隔离（2026-11-04）
+
+- 对比 MacClean 最新提交 `e790488` 和 QuietLock 最新提交 `d69c43a`：复用其按路径限定的隔离机制，并补齐 ProcScope 的旧发布应用识别、XcodeGen 配置与测试结束清理。
+- 中间应用、DerivedData、预览可执行文件、DMG 工作目录和步骤日志统一进入 `.build/artifacts.noindex/`；`release/` 输出 DMG、SHA-256 和安装背景。旧应用文件保留，只注销开发副本的 LaunchServices 注册。
+- 15 项 Python 测试全部通过，同时验证 Homebrew Python 3.15 和系统 Python 3.9。覆盖已安装应用与符号链接保护、旧发布应用 bundle ID、DerivedData 归属、Xcode 设置保留、输出路径约束、注销失败、命令退出码、连续执行 CI 时日志不撞名，以及挂载状态未知时保留工作目录、清理失败不覆盖原始失败码。
+- 修正参考实现的 BSD `mktemp` 模板问题：随机占位符必须位于模板末尾，使用 `ci.log.XXXXXX`，CI 附件同步收集整个日志目录。
+- 完整 XCTest：29 项通过，0 失败、0 跳过、0 运行时警告。重构后报告：`.build/artifacts.noindex/xcode/test/Logs/Test/Test-ProcScope-2026.11.04_06-23-48--0800.xcresult`。
+- Xcode 27.2 构建 Release：arm64 / x86_64、最低 macOS 14.0 和严格签名检查通过。最终压缩 DMG 只读挂载后，再次验证签名、架构、二进制和 Info.plist 一致性、Applications 链接及 `.DS_Store`；镜像完整性和 SHA-256 通过。
+- 预览脚本成功生成三张 2480 × 1620 的示例数据截图至 `.build/artifacts.noindex/previews/validation/`，未覆盖公开截图。XcodeGen 已重新生成 Scheme，Build / Test / Run / Profile / Archive 五个清理钩子均存在。
+- 当前系统对 Xcode 通用 Mac 目标输出设备版本诊断，并对 `hdiutil` 部分参数输出弃用提示；本轮构建和打包均成功。保留 macOS 14 兼容命令，未修改应用运行逻辑或发布新版本。
+- 收尾检查：临时工作目录和验证挂载均已清理。注销命令成功后，LaunchServices 仍保留新旧测试目录下的两条 `launch-disabled` 记录，无测试宿主进程在运行；脚本如实报告注销请求完成，不承诺系统数据库立即删除记录。未重置全局索引，也未进行搜索界面的可见性验收。
+- 提交前整理：拆分旧 DerivedData 识别、旧发布应用识别和 Xcode 命令路径校验；构建与打包共用 `verify-app.sh` 的版本校验；移除打包工作目录的重复别名，将挂载收尾提取为独立函数，探测失败时保留目录。

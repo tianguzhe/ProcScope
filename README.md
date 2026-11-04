@@ -70,20 +70,37 @@ shasum -a 256 -c ProcScope.dmg.sha256
 需要 macOS、Xcode 16+。已提交 Xcode 项目，日常构建不需要 XcodeGen。
 
 ```sh
-bash scripts/test.sh                     # XCTest，仅对测试创建的子进程执行信号
+python3 scripts/build_isolation.py prepare # 首次打开 Xcode 前配置本机隔离目录
+bash scripts/test.sh                     # 构建隔离测试 + XCTest，仅对测试创建的子进程执行信号
 bash scripts/build.sh                    # 构建、签名并验证 Universal 应用
 bash scripts/package-dmg.sh --skip-build # 为刚构建的应用打包
 bash scripts/build-release.sh            # 一步构建应用 + DMG + SHA-256
 bash scripts/preview.sh                  # 使用示例数据渲染公开界面截图 → docs/
 ```
 
-产物：`release/ProcScope.app`、`release/ProcScope.dmg`、`release/ProcScope.dmg.sha256`。可通过 `PROCSCOPE_BUILD_DIR` 调整构建缓存目录，通过 `PROCSCOPE_OUTPUT_DIR` 调整产物目录。后者建议使用绝对路径。
+安装包：`release/ProcScope.dmg`、`release/ProcScope.dmg.sha256`。中间应用位于 `.build/artifacts.noindex/ProcScope.app`；正式使用请从 DMG 将应用拖入 `/Applications`。构建、测试、预览、打包缓存和日志统一位于 `.build/artifacts.noindex/`。
 
-DMG 打包需要 Python 3.10+，首次在 `build/dmg-venv/` 安装锁定的 `dmgbuild`、`ds-store`、`mac-alias`。仅构建时使用，应用运行不依赖 Python。Finder 窗口设置直接写入 `.DS_Store`，不依赖 Finder、AppleScript 或辅助功能权限；背景含 1× / 2× 分辨率。
+`PROCSCOPE_OUTPUT_DIR` 可调整安装包输出目录，建议使用绝对路径。`PROCSCOPE_BUILD_DIR` 仍可指定 Release 的 DerivedData，但必须位于本项目 `.build/artifacts.noindex/` 内；默认是其下的 `xcode/release/`，测试使用 `xcode/test/`。
 
-`--skip-build` 会校验签名、双架构、最低系统版本与版本号；同版本源码发生变化后应重新构建再打包。应用先在临时目录完成校验，再替换旧产物。DMG 内的应用副本也会执行严格签名校验。
+DMG 打包需要 Python 3.10+，脚本自动选择可用解释器，也可通过 `PROCSCOPE_PYTHON` 指定。首次在 `.build/artifacts.noindex/dmg-venv/` 安装锁定的 `dmgbuild`、`ds-store`、`mac-alias`。仅构建时使用，应用运行不依赖 Python。Finder 窗口设置直接写入 `.DS_Store`，不依赖 Finder、AppleScript 或辅助功能权限；背景含 1× / 2× 分辨率。
+
+`--skip-build` 会校验签名、双架构、最低系统版本与版本号；同版本源码发生变化后应重新构建再打包。应用先在临时目录完成校验，再替换旧产物。最终压缩 DMG 会在隔离目录内只读挂载，检查包内应用签名、架构、二进制与版本信息一致性、Applications 链接和 Finder 布局文件，通过后才输出安装包并复核 SHA-256。
 
 修改 `project.yml` 后运行 `xcodegen generate`。版本号统一放在 `Version.xcconfig`，Xcode、打包脚本和发布标签共用。
+
+### 开发副本与应用搜索
+
+`.noindex` 目录用于排除 Spotlight 索引。构建入口和 Xcode 共享 Scheme 在构建、测试、运行或归档结束后，按路径注销本项目开发 App 的 LaunchServices 注册，减少应用搜索中的同名副本。首次打开 Xcode 前运行上面的 `prepare`，它只更新被 Git 忽略的本机 workspace 设置，并保留其他设置；已经打开的 Xcode 需重新打开项目以使用新路径。
+
+```sh
+python3 scripts/build_isolation.py status
+python3 scripts/build_isolation.py cleanup --dry-run
+python3 scripts/build_isolation.py cleanup
+```
+
+清理只请求注销注册，不删除应用或重置系统索引。范围包括本项目的构建目录、归属元数据匹配的旧 DerivedData，以及旧脚本生成的 `release/ProcScope.app`（存在时须匹配 bundle ID）；不会清理 `/Applications` 中的安装副本或沿符号链接清理外部应用。旧产物保留在原位，直接启动开发 App 可能重新注册，退出后可再次执行 `cleanup`。系统可能保留 `launch-disabled` 的数据库记录；注销成功不等于记录立即消失，Spotlight 或其他启动器的缓存也可能需重新打开搜索界面才能刷新。
+
+本次流程参考 [MacClean e790488](https://github.com/tianguzhe/MacClean/commit/e7904880af6adf1bb6d9e067a667fb77dd3231fe) 和 [QuietLock d69c43a](https://github.com/tianguzhe/QuietLock/commit/d69c43addcc77aa92a04c8e2310a703f883d52ee) 的构建隔离改动。
 
 ## 自动化发布
 
@@ -97,7 +114,7 @@ DMG 打包需要 Python 3.10+，首次在 `build/dmg-venv/` 安装锁定的 `dmg
 https://github.com/tianguzhe/ProcScope/releases/latest/download/ProcScope.dmg
 ```
 
-普通 push / PR 自动测试并验证双架构构建；只有版本标签触发 Release。失败步骤会显示摘要注释，测试诊断作为构建附件保留。已发布版本不会在重跑时被覆盖；上传中断的草稿可以继续。
+普通 push / PR 自动测试并验证双架构构建；只有版本标签触发 Release。失败步骤会显示摘要注释，测试诊断和 `.build/artifacts.noindex/logs/` 下的完整步骤日志作为构建附件保留。已发布版本不会在重跑时被覆盖；上传中断的草稿可以继续。
 
 产品落地页位于 [`tianguzhe.github.io`](https://github.com/tianguzhe/tianguzhe.github.io)，推送该站点的 `main` 自动部署。应用版本更新无需改动下载地址。
 

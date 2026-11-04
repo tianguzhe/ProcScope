@@ -47,9 +47,25 @@ targets:
 schemes:
   ProcScope:
     build:
+      runPostActionsOnFailure: true
+      preActions:
+        - name: Isolate development app artifacts
+          settingsTarget: ProcScope
+          script: /usr/bin/python3 "$SRCROOT/scripts/build_isolation.py" prepare --root "$SRCROOT"
+      postActions:
+        - &cleanupArtifacts
+          name: Unregister development app artifacts
+          settingsTarget: ProcScope
+          script: /usr/bin/python3 "$SRCROOT/scripts/build_isolation.py" cleanup --root "$SRCROOT"
       targets:
         ProcScope: all
     test:
       targets: [ProcScopeTests]
+      postActions: [*cleanupArtifacts]
+    run:
+      postActions: [*cleanupArtifacts]
+    profile:
+      postActions: [*cleanupArtifacts]
     archive:
       config: Release
+      postActions: [*cleanupArtifacts]

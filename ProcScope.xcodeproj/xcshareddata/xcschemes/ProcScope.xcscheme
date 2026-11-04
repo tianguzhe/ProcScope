@@ -5,7 +5,43 @@
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES"
-      runPostActionsOnFailure = "NO">
+      runPostActionsOnFailure = "YES">
+      <PreActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Isolate development app artifacts"
+               scriptText = "/usr/bin/python3 &quot;$SRCROOT/scripts/build_isolation.py&quot; prepare --root &quot;$SRCROOT&quot;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "E1AEDF02EDEB4ADBFFBAD9B8"
+                     BuildableName = "ProcScope.app"
+                     BlueprintName = "ProcScope"
+                     ReferencedContainer = "container:ProcScope.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
+      <PostActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Unregister development app artifacts"
+               scriptText = "/usr/bin/python3 &quot;$SRCROOT/scripts/build_isolation.py&quot; cleanup --root &quot;$SRCROOT&quot;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "E1AEDF02EDEB4ADBFFBAD9B8"
+                     BuildableName = "ProcScope.app"
+                     BlueprintName = "ProcScope"
+                     ReferencedContainer = "container:ProcScope.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PostActions>
       <BuildActionEntries>
          <BuildActionEntry
             buildForTesting = "YES"
@@ -29,6 +65,24 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
       onlyGenerateCoverageForSpecifiedTargets = "NO">
+      <PostActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Unregister development app artifacts"
+               scriptText = "/usr/bin/python3 &quot;$SRCROOT/scripts/build_isolation.py&quot; cleanup --root &quot;$SRCROOT&quot;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "E1AEDF02EDEB4ADBFFBAD9B8"
+                     BuildableName = "ProcScope.app"
+                     BlueprintName = "ProcScope"
+                     ReferencedContainer = "container:ProcScope.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PostActions>
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
@@ -64,6 +118,24 @@
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
       allowLocationSimulation = "YES">
+      <PostActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Unregister development app artifacts"
+               scriptText = "/usr/bin/python3 &quot;$SRCROOT/scripts/build_isolation.py&quot; cleanup --root &quot;$SRCROOT&quot;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "E1AEDF02EDEB4ADBFFBAD9B8"
+                     BuildableName = "ProcScope.app"
+                     BlueprintName = "ProcScope"
+                     ReferencedContainer = "container:ProcScope.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PostActions>
       <BuildableProductRunnable
          runnableDebuggingMode = "0">
          <BuildableReference
@@ -74,6 +146,8 @@
             ReferencedContainer = "container:ProcScope.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <CommandLineArguments>
+      </CommandLineArguments>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
@@ -81,6 +155,24 @@
       savedToolIdentifier = ""
       useCustomWorkingDirectory = "NO"
       debugDocumentVersioning = "YES">
+      <PostActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Unregister development app artifacts"
+               scriptText = "/usr/bin/python3 &quot;$SRCROOT/scripts/build_isolation.py&quot; cleanup --root &quot;$SRCROOT&quot;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "E1AEDF02EDEB4ADBFFBAD9B8"
+                     BuildableName = "ProcScope.app"
+                     BlueprintName = "ProcScope"
+                     ReferencedContainer = "container:ProcScope.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PostActions>
       <BuildableProductRunnable
          runnableDebuggingMode = "0">
          <BuildableReference
@@ -91,6 +183,8 @@
             ReferencedContainer = "container:ProcScope.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
+      <CommandLineArguments>
+      </CommandLineArguments>
    </ProfileAction>
    <AnalyzeAction
       buildConfiguration = "Debug">
@@ -98,5 +192,23 @@
    <ArchiveAction
       buildConfiguration = "Release"
       revealArchiveInOrganizer = "YES">
+      <PostActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Unregister development app artifacts"
+               scriptText = "/usr/bin/python3 &quot;$SRCROOT/scripts/build_isolation.py&quot; cleanup --root &quot;$SRCROOT&quot;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "E1AEDF02EDEB4ADBFFBAD9B8"
+                     BuildableName = "ProcScope.app"
+                     BlueprintName = "ProcScope"
+                     ReferencedContainer = "container:ProcScope.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PostActions>
    </ArchiveAction>
 </Scheme>
